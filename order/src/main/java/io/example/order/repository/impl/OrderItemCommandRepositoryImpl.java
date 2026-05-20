@@ -1,0 +1,162 @@
+package io.example.order.repository.impl;
+
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.google.protobuf.Empty;
+import io.example.order.model.OrderItem;
+import io.example.order.repository.OrderItemCommandRepository;
+import io.vertx.core.Future;
+import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
+import pb.order_item.OrderItemCommand.CreateOrderItemRecordRequest;
+import pb.order_item.OrderItemCommand.UpdateOrderItemRecordRequest;
+import pb.order_item.VertxOrderItemCommandServiceGrpcClient;
+
+public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepository {
+    private final VertxOrderItemCommandServiceGrpcClient client;
+
+    public OrderItemCommandRepositoryImpl(VertxOrderItemCommandServiceGrpcClient client) {
+        this.client = client;
+    }
+
+    @Override
+    public Future<OrderItem> createOrderItem(Long orderId, Integer productId, Integer quantity, Integer price) {
+        CreateOrderItemRecordRequest request = CreateOrderItemRecordRequest.newBuilder()
+                .setOrderId(orderId.intValue())
+                .setProductId(productId)
+                .setQuantity(quantity)
+                .setPrice(price)
+                .build();
+
+        return client.createOrderItem(request)
+                .map(response -> {
+                    if (response != null && response.hasData()) {
+                        var item = response.getData();
+                        return OrderItem.builder()
+                                .orderItemId((long) item.getId())
+                                .orderId(item.getOrderId())
+                                .productId(item.getProductId())
+                                .quantity(item.getQuantity())
+                                .price(item.getPrice())
+                                .createdAt(parseTimestamp(item.getCreatedAt()))
+                                .updatedAt(parseTimestamp(item.getUpdatedAt()))
+                                .build();
+                    }
+                    return null;
+                });
+    }
+
+    @Override
+    public Future<OrderItem> updateOrderItem(Long orderItemId, Integer quantity, Integer price) {
+        UpdateOrderItemRecordRequest request = UpdateOrderItemRecordRequest.newBuilder()
+                .setOrderItemId(orderItemId.intValue())
+                .setQuantity(quantity)
+                .setPrice(price)
+                .build();
+
+        return client.updateOrderItem(request)
+                .map(response -> {
+                    if (response != null && response.hasData()) {
+                        var item = response.getData();
+                        return OrderItem.builder()
+                                .orderItemId((long) item.getId())
+                                .orderId(item.getOrderId())
+                                .productId(item.getProductId())
+                                .quantity(item.getQuantity())
+                                .price(item.getPrice())
+                                .createdAt(parseTimestamp(item.getCreatedAt()))
+                                .updatedAt(parseTimestamp(item.getUpdatedAt()))
+                                .build();
+                    }
+                    return null;
+                });
+    }
+
+    @Override
+    public Future<List<OrderItem>> trashOrderItem(Integer orderId) {
+        FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
+                .setId(orderId)
+                .build();
+
+        return client.trashOrderItem(request)
+                .map(response -> {
+                    List<OrderItem> list = new ArrayList<>();
+                    if (response != null && response.hasData()) {
+                        var item = response.getData();
+                        list.add(OrderItem.builder()
+                                .orderItemId((long) item.getId())
+                                .orderId(item.getOrderId())
+                                .productId(item.getProductId())
+                                .quantity(item.getQuantity())
+                                .price(item.getPrice())
+                                .createdAt(parseTimestamp(item.getCreatedAt()))
+                                .updatedAt(parseTimestamp(item.getUpdatedAt()))
+                                .build());
+                    }
+                    return list;
+                });
+    }
+
+    @Override
+    public Future<List<OrderItem>> restoreOrderItem(Integer orderId) {
+        FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
+                .setId(orderId)
+                .build();
+
+        return client.restoreOrderItem(request)
+                .map(response -> {
+                    List<OrderItem> list = new ArrayList<>();
+                    if (response != null && response.hasData()) {
+                        var item = response.getData();
+                        list.add(OrderItem.builder()
+                                .orderItemId((long) item.getId())
+                                .orderId(item.getOrderId())
+                                .productId(item.getProductId())
+                                .quantity(item.getQuantity())
+                                .price(item.getPrice())
+                                .createdAt(parseTimestamp(item.getCreatedAt()))
+                                .updatedAt(parseTimestamp(item.getUpdatedAt()))
+                                .build());
+                    }
+                    return list;
+                });
+    }
+
+    @Override
+    public Future<Void> deleteOrderItemPermanently(Integer orderId) {
+        FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
+                .setId(orderId)
+                .build();
+
+        return client.deleteOrderItemByOrderPermanent(request)
+                .mapEmpty();
+    }
+
+    @Override
+    public Future<Void> restoreAllOrderItems() {
+        return client.restoreAllOrdersItem(Empty.getDefaultInstance())
+                .mapEmpty();
+    }
+
+    @Override
+    public Future<Void> deleteAllPermanentOrderItems() {
+        return client.deleteAllPermanentOrdersItem(Empty.getDefaultInstance())
+                .mapEmpty();
+    }
+
+    private Timestamp parseTimestamp(String ts) {
+        if (ts == null || ts.isBlank()) return null;
+        try {
+            return Timestamp.from(Instant.parse(ts));
+        } catch (Exception e) {
+            try {
+                return Timestamp.valueOf(LocalDateTime.parse(ts.replace(" ", "T")));
+            } catch (Exception ex) {
+                return null;
+            }
+        }
+    }
+}
