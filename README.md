@@ -1,37 +1,42 @@
-# Distributed Modular Monolith — Java 21 & Eclipse Vert.x E-Commerce Platform
+# Distributed Modular Monolith — E-Commerce Platform (Java Vert.x)
 
-A production-grade, highly resilient **reactive modular monolith e-commerce platform** built with **Java 21** and the **Eclipse Vert.x** toolkit. Engineered around Domain-Driven Design (DDD) service boundaries, this platform achieves high throughput, low latency, and non-blocking asynchronous event execution, all while retaining the deployment and operational simplicity of a single monorepo unit.
+A production-grade, highly resilient, and fully observable **modular-monolith e-commerce backend** built in **Java 21** using the **Eclipse Vert.x** reactive framework. Designed around domain-driven service boundaries following Clean Architecture and CQRS principles, it retains the operational and deployment simplicity of a single deployment unit while maintaining logical isolation typical of microservices.
 
-Each business domain exists in its own isolated module with a clean architecture design, communicating synchronously via type-safe **gRPC** and asynchronously via an event-driven **Kafka** backbone.
+Each e-commerce business domain — Users, Roles, Banners, Carts, Categories, Merchants, Merchant Awards, Merchant Businesses, Merchant Details, Merchant Policies, Orders, Order Items, Products, Reviews, Review Details, Shipping Addresses, Sliders, Transactions — lives in its own self-contained Maven module. These modules communicate synchronously via high-performance **gRPC** protocols and asynchronously using **Apache Kafka** event propagation, exposing a unified reactive entry point through a **REST API Gateway** powered by the Eclipse Vert.x HTTP Router.
 
----
-
-## Key Architectural Innovations (Java 21 + Vert.x)
-
-- **Reactive Non-Blocking Core**: Every service utilizes the Vert.x reactive execution model. All I/O operations (database queries, Redis caching, gRPC, and Kafka events) run on the non-blocking **Event Loop** with `Future` composition, completely avoiding traditional thread-per-request blocking overhead.
-- **Java 21 Native Features**: Uses Java 21 features including type-safe **Record Classes** for immutable DTOs, **Pattern Matching** for cleaner domain state validation, and modern collections.
-- **Distributed Cache (Redis Cluster)**: Native integration with **Redis Cluster** in Java Vert.x. Transparently switches between standalone and cluster client modes via environment variables (`REDIS_CLUSTER_ENABLED` and `REDIS_CLUSTER_ENDPOINTS`).
-- **Unified gRPC Inter-Service Fabric**: Strongly-typed synchronous service-to-service communication is powered by Vert.x gRPC clients, leveraging unified client-side socket connection pooling.
-- **Modern Event-Driven Architecture (KRaft Kafka)**: Asynchronous actions (such as automated email dispatch on merchant onboarding, document upload, and transaction creation) are decoupled through the Vert.x Kafka Client interacting with an Apache Kafka cluster running in modern **KRaft mode** (no Zookeeper dependency).
-- **Observability-First Philosophy**: Instrumented from the ground up with OpenTelemetry traces, Prometheus application metrics, pgBouncer connection pooling metrics, Logback structured logging, and Grafana dashboards.
+The platform is fortified with a **comprehensive observability suite** (Prometheus, Grafana, Loki, Jaeger, OpenTelemetry, Pyroscope), robust connection pooling via **PgBouncer**, **distributed Redis Cluster caching** with custom telemetry for each service, and Kubernetes configurations ready for production auto-scaling.
 
 ---
 
-## Domain & Module Matrix
+## Key Features
 
-| Domain / Module | Technology Stack & Features |
-|:---|:---|
-| **API Gateway** | Unified REST entry point utilizing Vert.x Web router. Validates JWT, routes requests, and marshals JSON payloads into type-safe gRPC commands. Supports modular sub-handlers. |
-| **Auth & Users** | Secure registration, role-based access control (RBAC), bcrypt hashing, JWT access/refresh token generation. |
-| **Merchants** | Onboarding pipelines, verified registration, custom document uploads, auto-generated secure API keys (`mc_...`). |
-| **Catalog & Products** | High-performance catalog searching, category mapping, product inventory tracking, slider/banner systems. |
-| **Commerce & Checkout** | Shopping carts, reactive order lifecycle handling, shipping address directory. |
-| **Transactions** | Payment recording, transaction status tracking, and event-driven confirmation pipelines. |
-| **Email Service** | Asynchronous Kafka event consumer. Ingests notification payloads and dispatches responsive HTML email templates. |
+| Domain | Capabilities |
+| :--- | :--- |
+| **Auth & Users** | Secure registration, multi-factor login, stateless JWT access/refresh token lifecycle, password reset workflows, OTP email verification, and `/me` profile REST endpoint. |
+| **Roles & RBAC** | Custom permission configuration, granular access control matrices, and sub-second permission evaluation cached via Redis. |
+| **Catalog & Products** | Full CRUD for products & categories, promo banners, and home slider carousels. |
+| **Cart & Commerce** | Add-to-cart, checkout workflows, order lifecycle management, order-item decomposition, and shipping address details. |
+| **Merchants** | Fully featured merchant onboarding, profile details management, business data registration, policies, and merchant awards. |
+| **Transactions** | Centralized financial audit ledger collecting transaction and payment events across the system, global search filters, and status tracking. |
+| **Reviews** | Product ratings & detailed review submissions post-purchase. |
+| **Email Worker** | Kafka-driven asynchronous worker dispatching critical notification emails (OTPs, login alerts, merchant onboarding notices, and transaction invoices) via SMTP. |
+| **Observability** | Multi-dimensional metrics (Prometheus + Grafana), log aggregation (Loki + Logback), end-to-end distributed tracing (Jaeger + OpenTelemetry), continuous CPU/Memory profiling (Pyroscope), and resource monitors (Node, Kafka, Postgres Exporters). |
+| **Deployment** | Local orchestration using Docker Compose (featuring a 6-node Redis Cluster and PgBouncer), and auto-scaling Kubernetes manifests configured with Horizontal Pod Autoscalers (HPA). |
 
 ---
 
-## Comprehensive Architecture Blueprint
+## Architecture Overview
+
+The platform implements a **Distributed Modular Monolith** architecture. Each business service is logical, decoupled, and self-contained inside its own Maven submodule, possessing its own independent gRPC boundary. A **Vert.x REST API Gateway** acts as the unified edge router, transforming client HTTP REST requests into fast gRPC downstream communications via Vert.x gRPC clients.
+
+### Core Architecture Principles
+
+- **Domain-Driven Boundary Isolation**: Every service owns its database access, caching layers, and service logic, strictly forbidding cross-boundary database sharing.
+- **Clean Architecture & CQRS**: Separation of concerns using `Handler (gRPC) → Service (Command/Query) → Repository (Command/Query)` layers ensures business logic remains clean, performant, and framework-agnostic.
+- **Reactive execution**: Powered entirely by the non-blocking Eclipse Vert.x event loop, enabling high throughput with minimal resource footprints.
+- **PgBouncer Pooling**: Employs connection pooling to avoid PostgreSQL socket exhaustion across the multiple concurrent modular services.
+- **Event-Driven Resilience**: Apache Kafka decouples transaction events, ensuring side effects like email billing remain completely non-blocking.
+- **OTel Telemetry Integration**: Standardized OpenTelemetry middleware injects trace IDs across gRPC boundaries, allowing seamless trace propagation from the client REST gateway down to postgres operations.
 
 ```mermaid
 graph TB
@@ -42,388 +47,649 @@ graph TB
     classDef obs fill:#052e16,stroke:#4ade80,color:#dcfce7,stroke-width:1.5px
     classDef event fill:#431407,stroke:#fb923c,color:#fed7aa,stroke-width:1.5px
 
-    Client["Client Applications<br/>(Web / Mobile / HTTP API)"]:::client
+    Client["Client Applications<br/>(Web / Mobile / API)"]:::client
 
-    subgraph APIGateway["API Gateway — Vert.x Web Router & REST Bridge"]
+    subgraph APIGateway["API Gateway — NGINX + Vert.x REST Gateway"]
         direction LR
-        REST["REST Endpoints<br/>/api/v1/*"]
-        JWT["JWT Auth &<br/>Role Validation"]
-        ClientPool["Unified gRPC Client Pool"]
+        REST["REST API Route Handler<br/>Port :5000"]
+        AuthMW["JWT Auth & Role<br/>Middleware"]
     end
     class APIGateway gateway
 
-    Client --> REST
-    REST --> JWT
-    JWT --> ClientPool
+    Client -->|HTTP REST| APIGateway
 
-    subgraph BusinessServices["Vert.x Reactive Domain Verticles"]
+    subgraph BusinessServices["Business Domain Services (Java Vert.x)"]
         direction TB
 
-        subgraph IdentityDomain["Identity & Access Module"]
-            AUTH["Auth Verticle<br/>JWT & RBAC"]
-            USER["User Verticle<br/>User Management"]
-            ROLE["Role Verticle<br/>Role Registry"]
+        subgraph IdentityDomain["Identity & Access"]
+            AUTH["Auth Service<br/>JWT & BCrypt Server"]
+            USER["User Service<br/>Profile Management"]
+            ROLE["Role Service<br/>RBAC & Permissions"]
         end
 
-        subgraph MerchantDomain["Merchant Module Suite"]
-            MERCH["Merchant Verticle"]
+        subgraph MerchantDomain["Merchant Management"]
+            MERCH["Merchant Service"]
             MDETAIL["Merchant Detail"]
             MBIZ["Merchant Business"]
             MPOL["Merchant Policy"]
             MAWARD["Merchant Award"]
         end
 
-        subgraph CatalogDomain["Catalog Module Suite"]
-            PROD["Product Verticle"]
-            CAT["Category Verticle"]
-            BANNER["Banner Verticle"]
-            SLIDER["Slider Verticle"]
+        subgraph CatalogDomain["Catalog & Inventory"]
+            PROD["Product Service"]
+            CAT["Category Service"]
+            BANNER["Banner Service"]
+            SLIDER["Slider Service"]
         end
 
-        subgraph CommerceDomain["Commerce & Checkout Module"]
-            CART["Cart Verticle"]
-            ORDER["Order Verticle"]
-            TXN["Transaction Verticle"]
-            SHIP["Shipping Address"]
+        subgraph CommerceDomain["Commerce & Fulfillment"]
+            CART["Cart Service"]
+            ORDER["Order Service"]
+            OITEM["Order Item Service"]
+            TXN["Transaction Service"]
+            SHIP["Shipping Address Service"]
         end
 
-        subgraph FeedbackDomain["Customer Feedback Module"]
-            REVIEW["Review Verticle"]
-            RDETAIL["Review Detail"]
+        subgraph FeedbackDomain["Customer Feedback"]
+            REVIEW["Review Service"]
+            RDETAIL["Review Detail Service"]
         end
     end
     class BusinessServices domain
 
-    ClientPool -->|"Non-Blocking gRPC"| BusinessServices
+    APIGateway -->|"Vert.x gRPC Client"| BusinessServices
 
-    subgraph Infrastructure["Infrastructure & Persistence"]
+    subgraph Infrastructure["Infrastructure Layer"]
         direction LR
-        BOUNCER["pgBouncer<br/>Connection Pooler"]
-        PG[("PostgreSQL Database<br/>(PAYMENT_GATEWAY)")]
-        REDIS[("Redis Cluster<br/>(6-Node StatefulSet)")]
-        KAFKA[("Apache Kafka (KRaft)<br/>(Vert.x Kafka Client)")]
+        PGBOUNCER["PgBouncer<br/>Connection Pooler :6432"]
+        PG[("PostgreSQL<br/>PAYMENT_GATEWAY DB")]
+        REDIS[("Redis Cluster<br/>6-Node Distributed Cache")]
+        KAFKA[("Kafka Broker<br/>Event Bus")]
+        PYRO["Pyroscope<br/>Continuous Profiler"]
     end
     class Infrastructure infra
 
-    BusinessServices -->|"Reactive Client"| BOUNCER
-    BOUNCER -->|"Pooled Connection"| PG
-    BusinessServices -->|"RedisAPI Cluster Commands"| REDIS
+    BusinessServices -->|"Reactive SQL Client"| PGBOUNCER
+    PGBOUNCER --> PG
+    BusinessServices -->|"Vert.x Redis API"| REDIS
     BusinessServices -->|"Publish Events"| KAFKA
+    BusinessServices -.->|"Profile Data"| PYRO
 
-    subgraph EventConsumers["Event-Driven Notification Layer"]
-        EMAIL["Email Consumer Verticle<br/>Kafka Consumer + SMTP"]
+    subgraph EventConsumers["Event-Driven Consumers"]
+        EMAIL["Email Service<br/>SMTP Notification Worker"]
     end
     class EventConsumers event
 
-    KAFKA -->|"Consume Event"| EMAIL
+    KAFKA -->|"Consume Events"| EMAIL
 
     subgraph Observability["Observability Stack"]
         direction LR
-        PROM["Prometheus<br/>Scrapers"]
-        OTEL["OTel SDK<br/>Distributed Traces"]
-        JAEGER["Jaeger UI<br/>Trace Visualizer"]
-        GRAFANA["Grafana<br/>Dashboards"]
+        PROM["Prometheus<br/>Metrics Engine"]
+        LOKI["Loki<br/>Log Aggregator"]
+        JAEGER["Jaeger<br/>Distributed Traces"]
+        GRAFANA["Grafana<br/>Unified Dashboards"]
+        OTEL["OTel Collector<br/>Telemetry Pipeline"]
+        PROMTAIL["Promtail<br/>Log Shipper"]
+        NODEX["Node Exporter"]
+        KAFKAX["Kafka Exporter<br/>Broker Metrics"]
+        PGX["Postgres Exporter<br/>DB Performance"]
     end
     class Observability obs
 
     BusinessServices -.->|"/metrics"| PROM
     BusinessServices -.->|"OTLP Spans"| OTEL
     OTEL -.-> JAEGER
+    PROMTAIL -.-> LOKI
+    NODEX -.-> PROM
+    KAFKAX -.-> PROM
+    PGX -.-> PROM
     PROM -.-> GRAFANA
+    LOKI -.-> GRAFANA
+    JAEGER -.-> GRAFANA
 ```
 
 ---
 
-## Internal Service Architecture (Vert.x Verticle Pattern)
+## Service Catalog
 
-Every module uses a custom **CQRS & Clean Architecture** implementation with strict dependency control:
+The modular architecture consists of **22 logical micro-applications** plus supporting database and migrations:
+
+```mermaid
+graph LR
+    classDef svc fill:#1e1b4b,stroke:#a78bfa,color:#ede9fe,stroke-width:1px,rx:8
+    classDef gw fill:#1e293b,stroke:#22d3ee,color:#cffafe,stroke-width:2px,rx:8,font-weight:bold
+    classDef support fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1px,rx:8
+
+    subgraph Gateway
+        API["API Gateway<br/>Vert.x REST Router"]:::gw
+    end
+
+    subgraph Identity["Identity & Access (3)"]
+        A1["auth"]:::svc
+        A2["user"]:::svc
+        A3["role"]:::svc
+    end
+
+    subgraph Merchant["Merchant Suite (5)"]
+        M1["merchant"]:::svc
+        M2["merchant_detail"]:::svc
+        M3["merchant_business"]:::svc
+        M4["merchant_policy"]:::svc
+        M5["merchant_award"]:::svc
+    end
+
+    subgraph Catalog["Catalog (4)"]
+        C1["product"]:::svc
+        C2["category"]:::svc
+        C3["banner"]:::svc
+        C4["slider"]:::svc
+    end
+
+    subgraph Commerce["Commerce (5)"]
+        O1["cart"]:::svc
+        O2["order"]:::svc
+        O3["order_item"]:::svc
+        O4["transaction"]:::svc
+        O5["shipping_address"]:::svc
+    end
+
+    subgraph Feedback["Feedback (2)"]
+        R1["review"]:::svc
+        R2["review_detail"]:::svc
+    end
+
+    subgraph Support["Support Services (2)"]
+        S1["email"]:::support
+        S2["common"]:::support
+    end
+
+    API -->|"gRPC Client"| Identity
+    API -->|"gRPC Client"| Merchant
+    API -->|"gRPC Client"| Catalog
+    API -->|"gRPC Client"| Commerce
+    API -->|"gRPC Client"| Feedback
+```
+
+---
+
+## Internal Service Architecture
+
+Every logical business service is mapped as a decoupled submodule following structured clean architecture rules.
 
 ```mermaid
 graph TB
-    classDef entry fill:#1e3a5f,stroke:#7dd3fc,color:#e0f2fe,stroke-width:1.5px
-    classDef handler fill:#1e293b,stroke:#22d3ee,color:#cffafe,stroke-width:1.5px
+    classDef handler fill:#1e3a5f,stroke:#7dd3fc,color:#e0f2fe,stroke-width:1.5px
     classDef service fill:#1e1b4b,stroke:#a78bfa,color:#ede9fe,stroke-width:1.5px
     classDef repo fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1.5px
+    classDef infra fill:#052e16,stroke:#4ade80,color:#dcfce7,stroke-width:1.5px
     classDef shared fill:#431407,stroke:#fb923c,color:#fed7aa,stroke-width:1.5px
-    classDef thirdparty fill:#052e16,stroke:#4ade80,color:#dcfce7,stroke-width:1.5px
 
-    subgraph Module["Reactive Module (e.g., transaction/)"]
+    subgraph Service["Maven Module: <service-name>/"]
         direction TB
-        VERTICLE["TransactionVerticle.java<br/>Entry & Lifecycle Hook"]:::entry
-        HANDLER["TransactionCommandHandler.java<br/>gRPC Dispatcher"]:::handler
-        SERVICE["TransactionCommandServiceImpl.java<br/>Command Execution"]:::service
-        REPO["TransactionCommandRepositoryImpl.java<br/>PgPool Execution"]:::repo
+
+        VERTICLE["<ServiceName>Verticle.java<br/>Bootstrap & Lifecycle"]
+
+        subgraph SrcJava["src/main/java/io/example/<service>/"]
+            direction TB
+            HANDLER["handler/<br/>gRPC Service Handlers"]:::handler
+            SVC["service/ & service.impl/<br/>CQRS Business Logic"]:::service
+            REPO["repository/ & repository.impl/<br/>Reactive SQL Queries"]:::repo
+            MODEL["model/<br/>Entities & Mappings"]:::repo
+        end
+
+        VERTICLE --> HANDLER
+        VERTICLE --> SVC
+        VERTICLE --> REPO
+        HANDLER --> SVC
+        SVC --> REPO
+        REPO --> MODEL
     end
 
-    subgraph CommonModule["common/ Module — Shared Platform"]
+    subgraph SharedLibs["common/ — Shared Maven Module"]
         direction LR
-        REDIS_SVC["RedisService.java<br/>Cache API"]:::shared
-        KAFKA_SVC["KafkaService.java<br/>Event Producer"]:::shared
-        TRACING["TracingMetrics.java<br/>Telemetry Hook"]:::shared
-        EMAIL_TMPL["EmailTemplate.java<br/>HTML Template Engine"]:::shared
-        CONFIG["AppConfig.java<br/>System Props Loader"]:::shared
+        CONFIG["config/<br/>AppConfig / JwtConfig"]:::shared
+        FLYWAY["config/FlywayConfig<br/>Migrations Runner"]:::shared
+        REDIS_CFG["config/RedisConfig<br/>Client Pools"]:::shared
+        REDIS_SVC["service/RedisService<br/>Cache Actions"]:::shared
+        OBS["observability/<br/>TracingMetrics / TelemetryConfig"]:::shared
+        PB["proto stubs / pb<br/>gRPC Proto Stubs"]:::shared
     end
 
-    subgraph ExternalLibraries["External Frameworks"]
-        VERT_X["Eclipse Vert.x Core"]:::thirdparty
-        GRPC_SERV["Vert.x gRPC Server"]:::thirdparty
-        OTEL_SDK["OpenTelemetry SDK"]:::thirdparty
+    subgraph Infrastructure["External Infrastructure"]
+        direction LR
+        PGDB[("PostgreSQL")]:::infra
+        RCLUSTER[("Redis Cluster")]:::infra
+        KAFKA[("Kafka Brokers")]:::infra
     end
 
-    VERTICLE --> APPS_INIT["Initialize Pool, Redis, Kafka"]
-    APPS_INIT --> HANDLER
-    APPS_INIT --> SERVICE
-    APPS_INIT --> REPO
-    HANDLER --> SERVICE
-    SERVICE --> REPO
-    REPO -->|"Non-Blocking Query"| VERT_X
-    SERVICE -->|"Cache Reads/Writes"| REDIS_SVC
-    SERVICE -->|"Publish Topic Event"| KAFKA_SVC
-    SERVICE -->|"Start Trace Span"| TRACING
-    SERVICE -->|"Build Responsive HTML"| EMAIL_TMPL
-    VERTICLE -->|"Bind Services"| GRPC_SERV
-    TRACING -->|"Report Spans"| OTEL_SDK
+    HANDLER --> PB
+    SVC --> REDIS_SVC
+    SVC --> OBS
+    REPO --> PGDB
+    REDIS_SVC --> RCLUSTER
+    VERTICLE --> FLYWAY
 ```
 
 ---
 
-## Getting Started & Local Development
+## Data & Event Flow
+
+### Synchronous Flow (REST Proxy & Cache Read-Through)
+
+All external client API requests go through the REST endpoints defined in the Vert.x API Gateway Router. The API Gateway validates the JWT/API Key, connects with the correct downstream gRPC modular server, checks the Redis Cluster cache, and fetches PostgreSQL through PgBouncer if a cache miss occurs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant GW as API Gateway<br/>(Vert.x REST Router)
+    participant SVC as Domain Service<br/>(gRPC Server)
+    participant REDIS as Redis Cluster
+    participant PGB as PgBouncer
+    participant DB as PostgreSQL
+
+    C->>GW: HTTP REST Request (GET/POST/PUT)
+    GW->>GW: JWT Authentication Check
+    GW->>SVC: gRPC Call (Protobuf payload)
+    SVC->>REDIS: Check Cache (Redis Cluster)
+    alt Cache Hit
+        REDIS-->>SVC: Return Cached Response
+    else Cache Miss
+        SVC->>PGB: Acquire Connection
+        PGB->>DB: Reactive SQL Execution
+        DB-->>PGB: DB Result Set
+        PGB-->>SVC: Reactive Rows Mapped
+        SVC->>REDIS: Populate Cache for next read
+    end
+    SVC-->>GW: gRPC Response payload
+    GW-->>C: HTTP REST Response (JSON format)
+```
+
+### Asynchronous Flow (Kafka Notification Event pipeline)
+
+High-performance e-commerce actions (like merchant onboarding, order checkouts, or transaction creations) trigger background notification events published directly to Apache Kafka brokers. The isolated Email service listens to Kafka, maps the events, and contacts SMTP services.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SVC as Producer Service
+    participant K as Kafka Broker
+    participant EMAIL as Email Worker Service
+    participant SMTP as SMTP Server
+
+    SVC->>K: Publish Event (e.g. order.created / merchant.onboarded)
+    K-->>EMAIL: Deliver topic payload (asynchronous consumer)
+    EMAIL->>EMAIL: Map payload details
+    EMAIL->>SMTP: Send custom styled notification
+    SMTP-->>EMAIL: Delivery Confirmation
+```
+
+---
+
+## Observability Architecture
+
+```mermaid
+graph TB
+    classDef service fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff,stroke-width:1.5px
+    classDef collector fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1.5px
+    classDef storage fill:#052e16,stroke:#4ade80,color:#dcfce7,stroke-width:1.5px
+    classDef viz fill:#431407,stroke:#fb923c,color:#fed7aa,stroke-width:2px,font-weight:bold
+
+    subgraph Sources["Telemetry Sources"]
+        direction TB
+        SVCS["All Business Services<br/>(22 services)"]:::service
+        KAFKA_SRC["Kafka Broker"]:::service
+        NODES["Host / Node"]:::service
+        DB_SRC["PostgreSQL Engine"]:::service
+    end
+
+    subgraph Collectors["Collection Layer"]
+        direction TB
+        PROM["Prometheus<br/>Scrapes /metrics"]:::collector
+        PROMTAIL["Promtail<br/>Ships container logs"]:::collector
+        OTEL["OTel Collector<br/>Receives OTLP spans"]:::collector
+        NODEX["Node Exporter<br/>CPU / Memory / Disk / Net"]:::collector
+        KAFKAX["Kafka Exporter<br/>Topic lag / Broker health"]:::collector
+        PGX["Postgres Exporter<br/>PgBouncer & Query performance"]:::collector
+    end
+
+    subgraph Storage["Storage Layer"]
+        direction TB
+        PROM_TSDB["Prometheus TSDB<br/>(Metrics)"]:::storage
+        LOKI_STORE["Loki<br/>(Log Index + Chunks)"]:::storage
+        JAEGER_STORE["Jaeger<br/>(Trace Storage)"]:::storage
+    end
+
+    subgraph Visualization["Visualization & Alerting"]
+        GRAFANA["Grafana<br/>Unified Dashboards"]:::viz
+        ALERTMGR["Alertmanager<br/>Alert Routing"]:::viz
+    end
+
+    SVCS -->|"/metrics"| PROM
+    SVCS -->|"OTLP gRPC"| OTEL
+    SVCS -->|"stdout/stderr"| PROMTAIL
+    NODES --> NODEX
+    KAFKA_SRC --> KAFKAX
+    DB_SRC --> PGX
+
+    NODEX --> PROM
+    KAFKAX --> PROM
+    PGX --> PROM
+    PROM --> PROM_TSDB
+    PROMTAIL --> LOKI_STORE
+    OTEL --> JAEGER_STORE
+
+    PROM_TSDB --> GRAFANA
+    LOKI_STORE --> GRAFANA
+    JAEGER_STORE --> GRAFANA
+    PROM_TSDB --> ALERTMGR
+```
+
+| Pillar | Tool | Purpose |
+| :--- | :--- | :--- |
+| **Metrics** | Prometheus + Grafana | Core metrics tracking (CPU, memory, request error rates, gRPC latencies, DB connection states). |
+| **Logging** | Loki + Logback | Centralized structured JSON logger for indexing logs by service, queryable via LogQL. |
+| **Tracing** | OpenTelemetry + Jaeger | Distributed system tracing across API gateway and internal gRPC services. |
+| **Profiling** | Pyroscope | Continuous memory/CPU profiling to eliminate allocation memory leaks in transaction loops. |
+| **Alerting** | Alertmanager | Automated notification system triggered during latency hikes or service disconnects. |
+
+---
+
+## Deployment Architectures
+
+### Docker Compose (Local Development)
+
+The Docker Compose configuration provisions a 6-node Redis Cluster along with databases, event brokers, and reactive service containers to replicate a microservices environment.
+
+```mermaid
+flowchart TD
+    classDef gateway fill:#1e293b,stroke:#22d3ee,color:#cffafe,stroke-width:2px,font-weight:bold
+    classDef core fill:#1e1b4b,stroke:#a78bfa,color:#ede9fe,stroke-width:1.5px
+    classDef infra fill:#172554,stroke:#60a5fa,color:#dbeafe,stroke-width:1.5px
+    classDef obs fill:#052e16,stroke:#4ade80,color:#dcfce7,stroke-width:1.5px
+    classDef event fill:#431407,stroke:#fb923c,color:#fed7aa,stroke-width:1.5px
+
+    subgraph DockerCompose["docker-compose.yml — Local Environment"]
+
+        subgraph Gateway["API Gateway"]
+            NGINX["NGINX Proxy :80"]
+            APIGW["API Gateway Container<br/>Vert.x REST Gateway :5000"]
+        end
+        class Gateway gateway
+
+        subgraph Services["Core Service Containers"]
+            subgraph Identity["Identity & Access"]
+                AUTH["auth"]
+                USER["user"]
+                ROLE["role"]
+            end
+
+            subgraph MerchantSuite["Merchant Domain"]
+                MERCH["merchant"]
+                MDETAIL["merchant_detail"]
+                MBIZ["merchant_business"]
+                MPOL["merchant_policy"]
+                MAWARD["merchant_award"]
+            end
+
+            subgraph CatalogSuite["Catalog"]
+                PROD["product"]
+                CAT["category"]
+                BANNER["banner"]
+                SLIDER["slider"]
+            end
+
+            subgraph CommerceSuite["Commerce & Fulfillment"]
+                CART["cart"]
+                ORDER["order"]
+                OITEM["order_item"]
+                TXN["transaction"]
+                SHIP["shipping_address"]
+            end
+
+            subgraph ReviewSuite["Feedback"]
+                REVIEW["review"]
+                RDETAIL["review_detail"]
+            end
+        end
+        class Services core
+
+        subgraph Infra["Infrastructure Suite"]
+            PG[("PostgreSQL :5432")]
+            PGB[("PgBouncer :6432")]
+            REDIS_CLUSTER[("Redis Cluster :6379-6384<br/>6 Nodes Enabled")]
+            KAFKA[("Kafka Broker :9092")]
+            PYRO[("Pyroscope :4040")]
+        end
+        class Infra infra
+
+        subgraph Obs["Observability Stack"]
+            PROM["Prometheus :9090"]
+            GRAFANA["Grafana :3000"]
+            LOKI["Loki :3100"]
+            JAEGER["Jaeger :16686"]
+            OTEL["OTel Collector :4317"]
+            NODEX["Node Exporter"]
+            KAFKAX["Kafka Exporter"]
+            PGX["Postgres Exporter"]
+            PROMTAIL["Promtail Log Shipper"]
+        end
+        class Obs obs
+
+        subgraph Events["Event Consumers"]
+            EMAIL["Email Worker"]
+        end
+        class Events event
+    end
+
+    NGINX --> APIGW
+    APIGW -->|"gRPC"| Services
+    Services -->|"gRPC/SQL"| PGB
+    PGB --> PG
+    Services --> KAFKA
+    KAFKA --> EMAIL
+
+    Services --> REDIS_CLUSTER
+    APIGW --> REDIS_CLUSTER
+
+    Services -.->|"Metrics"| PROM
+    Services -.->|"Traces"| OTEL
+    Services -.->|"Profiles"| PYRO
+    OTEL -.-> JAEGER
+    PROMTAIL -.-> LOKI
+    PROM -.-> GRAFANA
+    LOKI -.-> GRAFANA
+```
+
+---
+
+## Technology Stack
+
+| Category | Selected Technologies | Purpose |
+| :--- | :--- | :--- |
+| **Language** | Java 21 (Eclipse Vert.x v4.5.24) | Reactive, non-blocking asynchronous Java execution. |
+| **API Edge Gateway** | Vert.x Web Router | Reactive REST API Gateway router and reverse proxy destination. |
+| **RPC Inter-service** | Vert.x gRPC Client & Server | Blazing fast, contract-first synchronous gRPC communication. |
+| **Database** | PostgreSQL v17 | Safe ACID persistent storage system. |
+| **Database Gateway** | PgBouncer | Extreme-efficiency PostgreSQL socket connection pooler. |
+| **DB Migrations** | Flyway | Incremental database schema version manager run on startup. |
+| **Caching Tier** | Redis Cluster (6 Nodes) | Resilient, distributed key-value cache layer. |
+| **Messaging Stream** | Apache Kafka | Asynchronous high-throughput messaging event bus (KRaft mode). |
+| **Token Manager** | JWT | Secure stateless request authentication standard. |
+| **Observability** | OpenTelemetry + Jaeger | Vendor-neutral distributed telemetry pipeline and visualization. |
+| **Continuous Profiler** | Pyroscope | Real-time memory allocation tracker to identify hot paths. |
+| **Docker Engine** | Compose | Local environment virtualization orchestration. |
+| **Orchestrator** | Kubernetes | Production-scale auto-scaling pod clustering infrastructure. |
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-Ensure the following tools are installed:
-- **Java 21 JDK** (GraalVM or Eclipse Temurin recommended)
-- **Apache Maven 3.9+**
-- **Docker & Docker Compose**
+Ensure the following system packages are locally configured:
 
-### 1. Clone the Repository
+- [Git](https://git-scm.com/)
+- [Java Development Kit (JDK 21+)](https://adoptium.net/)
+- [Apache Maven](https://maven.apache.org/) (v3.9+)
+- [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/)
+- [Protobuf Compiler](https://grpc.io/docs/protoc-installation/) (optional)
 
-```bash
+### 1. Clone the Workspace
+
+```sh
 git clone https://github.com/MamangRust/modular-monolith-vertx-ecommerce.git
 cd modular-monolith-vertx-ecommerce
 ```
 
-### 2. Build the Entire System
+### 2. Prepare Environment Configurations
 
-From the root directory:
-```bash
-mvn clean compile
+Setup the system configurations from placeholders:
+
+```sh
+# Copy root variables
+cp .env.example .env
+
+# Copy local docker settings overrides
+cp deployments/local/docker.env.example deployments/local/docker.env
 ```
 
-To compile specific modules individually:
-```bash
-mvn clean compile -pl transaction
-mvn clean compile -pl merchant
+### 3. Build the Maven Project
+
+Compile all submodules and build the executable JAR files:
+
+```sh
+mvn clean install
 ```
 
-### 3. Run the Stack Locally
+### 4. Build Docker Images and Start Environment
 
-Launch the infrastructure services (PostgreSQL, 6-node Redis Cluster, Kafka in KRaft mode, pgBouncer) and all modular monolith containers:
-```bash
-docker-compose --env-file docker.env up --build
+Use the included build script to compile the service Docker images, then boot the Docker Compose stack:
+
+```sh
+# Build docker images for all services
+./build-docker-images.sh
+
+# Start local infrastructure, telemetry containers, and application services
+docker-compose -f deployments/local/docker-compose.yml up -d
 ```
 
-### 4. Local Ports Map
+Flyway database migrations run automatically on service startup, preparing the database schema.
 
-| Port | Service Component | Interface Protocol |
-|:---|:---|:---|
-| **80 / 5000** | REST API Gateway | HTTP / REST |
-| **50051** | Auth Service | gRPC |
-| **50053** | User & Identity | gRPC |
-| **50055** | Merchant Suite | gRPC |
-| **50057** | Orders Module | gRPC |
-| **50059** | Transactions Module | gRPC |
-| **3000** | Grafana Dashboards | HTTP |
-| **9090** | Prometheus Metrics | HTTP |
-| **16686** | Jaeger Traces | HTTP |
+To verify the cluster services are up and healthy:
 
----
-
-## Kubernetes Orchestration (deployments/kubernetes/)
-
-Production deployments are managed using cloud-native Kubernetes manifests with robust orchestration defaults:
-
-### 1. Architectural Highlights
-- **High Availability Redis Cluster**: Configured as a **6-replica StatefulSet** utilizing headless services (`clusterIP: None`) for precise internal pod addressing. An automatic bootstrapping job handles initial cluster ring allocation.
-- **Kafka KRaft Broker**: Integrated natively as a KRaft controller/broker container, fully omitting obsolete Zookeeper instances for rapid startup and lean resource usage.
-- **Autoscaling (HPA)**: Integrated Horizontal Pod Autoscalers dynamically scale active deployment replicas (such as `auth`, `apigateway`, `transaction`) between `2` and `10` pods based on average CPU utilisation.
-- **Central ConfigMap Management**: Environment definitions are centralized in `configsmaps.yaml` with reactive database URLs matching standard configurations.
-
-### 2. Deploying to a Cluster
-Create the namespace and load system variables, database configurations, and secrets first, then apply deployments:
-```bash
-# 1. Initialize namespace
-kubectl apply -f deployments/kubernetes/namespace.yaml
-
-# 2. Apply ConfigMaps and Secrets
-kubectl apply -f deployments/kubernetes/configsmaps.yaml
-kubectl apply -f deployments/kubernetes/secrets.yaml
-
-# 3. Spin up Postgres & persistent volumes
-kubectl apply -f deployments/kubernetes/postgres-pvc.yaml
-kubectl apply -f deployments/kubernetes/postgres-service.yaml
-kubectl apply -f deployments/kubernetes/postgres-deployment.yaml
-
-# 4. Deploy the 6-Node Redis Cluster & Trigger Initialization
-kubectl apply -f deployments/kubernetes/redis-service.yaml
-kubectl apply -f deployments/kubernetes/redis-deployment.yaml
-kubectl apply -f deployments/kubernetes/redis-cluster-creator.yaml
-
-# 5. Apply the rest of the Microservices & Observability tools
-kubectl apply -f deployments/kubernetes/
+```sh
+docker-compose -f deployments/local/docker-compose.yml ps
 ```
 
 ---
 
-## Observability Matrix
+## Port Map Registry
 
-| Pillar | Service Integration | Visualization Tooling |
-|:---|:---|:---|
-| **Distributed Tracing** | OpenTelemetry Java SDK automatically generates trace spans across gateway and RPC service jumps. | **Jaeger UI** - view end-to-end service hop details and query slow paths. |
-| **Application Metrics** | Vert.x Micrometer Metrics exporter. | **Prometheus** - gathers database pool sizes, HTTP/gRPC latency, and cache hit ratios. |
-| **Centralized Logging** | Logback SLF4J formatted with JSON output formats. | **Loki** - aggregated logs from all modular pods, searchable in Grafana. |
+| Application/Service | Port Configuration / URL |
+| :--- | :--- |
+| **NGINX Reverse Proxy Edge** | [http://localhost](http://localhost) |
+| **API Gateway Direct REST Hub** | [http://localhost:5000](http://localhost:5000) |
+| **Grafana Dashboard Portal** | [http://localhost:3000](http://localhost:3000) *(Credentials: `admin`/`admin`)* |
+| **Prometheus Telemetry** | [http://localhost:9090](http://localhost:9090) |
+| **Jaeger Distributed Tracing** | [http://localhost:16686](http://localhost:16686) |
+| **Pyroscope Profiling Panel** | [http://localhost:4040](http://localhost:4040) |
+| **PgBouncer Gateway Node** | `localhost:6432` |
+| **PostgreSQL Database Engine** | `localhost:5432` |
+
+To stop the development system and clean up resources:
+
+```sh
+docker-compose -f deployments/local/docker-compose.yml down -v
+```
 
 ---
 
-## Database Schema (ERD)
+## Maven & Shell Commands Reference
 
-The relational database is orchestrated under the unified `PAYMENT_GATEWAY` database (leveraged cleanly by each module). Below is the logical data layout model represented as a native **Mermaid.js Entity-Relationship Diagram**:
+| Command | Scope |
+| :--- | :--- |
+| `mvn clean install` | Cleans target directories, runs tests, compiles all submodules, and generates package JARs. |
+| `mvn compile` | Compiles raw Java source files for all modules. |
+| `./build-docker-images.sh` | Orchestrates the build of Docker images for all Vert.x microservices. |
+| `docker-compose -f deployments/local/docker-compose.yml up -d` | Launches all containers (DBs, Redis cluster, Kafka, observability, and Java services) in background mode. |
+| `docker-compose -f deployments/local/docker-compose.yml down` | Stops compose containers, releasing standard networks. |
+| `docker-compose -f deployments/local/docker-compose.yml logs -f <service>` | Follows the realtime stdout logs of a specific service container. |
 
-```mermaid
-erDiagram
-    USERS ||--o| ROLES : "belongs to"
-    USERS ||--o| MERCHANTS : "owns"
-    USERS ||--o| CARTS : "has"
-    USERS ||--o| ORDERS : "places"
-    USERS ||--o| REVIEWS : "writes"
-    USERS ||--o| SHIPPING_ADDRESSES : "manages"
+---
 
-    MERCHANTS ||--o{ PRODUCTS : "registers"
-    CATEGORIES ||--o{ PRODUCTS : "classifies"
+## Workspace Directory Tree
 
-    ORDERS ||--|{ ORDER_ITEMS : "contains"
-    ORDERS ||--|| TRANSACTIONS : "settles"
-    PRODUCTS ||--o{ ORDER_ITEMS : "purchased in"
-    PRODUCTS ||--o{ REVIEWS : "receives"
-    REVIEWS ||--|| REVIEW_DETAILS : "elaborates"
-
-    USERS {
-        uuid id PK
-        string email
-        string password
-        uuid role_id FK
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    ROLES {
-        uuid id PK
-        string name
-        string permissions
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    MERCHANTS {
-        uuid id PK
-        uuid user_id FK
-        string name
-        string status
-        string api_key
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    PRODUCTS {
-        uuid id PK
-        uuid merchant_id FK
-        uuid category_id FK
-        string name
-        decimal price
-        int stock
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    CATEGORIES {
-        uuid id PK
-        string name
-        uuid parent_id FK
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    CARTS {
-        uuid id PK
-        uuid user_id FK
-        uuid product_id FK
-        int quantity
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    ORDERS {
-        uuid id PK
-        uuid user_id FK
-        uuid shipping_address_id FK
-        decimal total_price
-        string status
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    ORDER_ITEMS {
-        uuid id PK
-        uuid order_id FK
-        uuid product_id FK
-        int quantity
-        decimal price
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    TRANSACTIONS {
-        uuid id PK
-        uuid order_id FK
-        decimal amount
-        string status
-        string payment_method
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    REVIEWS {
-        uuid id PK
-        uuid user_id FK
-        uuid product_id FK
-        int rating
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    REVIEW_DETAILS {
-        uuid id PK
-        uuid review_id FK
-        string review_text
-        string reply_text
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    SHIPPING_ADDRESSES {
-        uuid id PK
-        uuid user_id FK
-        string street
-        string city
-        string state
-        string postal_code
-        timestamp created_at
-        timestamp updated_at
-    }
 ```
+vertx-ecommerce/
+├── pom.xml                         # Root Maven Parent POM
+├── proto/                          # Protobuf contracts (22 domains)
+│   ├── auth/                       #   Authentication specifications
+│   ├── banner/                     #   Promo banner specifications
+│   ├── cart/                       #   Cart specifications
+│   ├── category/                   #   Product category specifications
+│   ├── common/                     #   Shared data specifications
+│   ├── merchant/                   #   Merchant specifications
+│   ├── merchant_award/             #   Merchant award specifications
+│   ├── merchant_business/          #   Merchant business specifications
+│   ├── merchant_detail/            #   Merchant details specifications
+│   ├── merchant_document/          #   Merchant document specifications
+│   ├── merchant_social_link/       #   Merchant social link specifications
+│   ├── merchant_policy/            #   Merchant policy specifications
+│   ├── order/                      #   Order specifications
+│   ├── order_item/                 #   Order item specifications
+│   ├── product/                    #   Product specifications
+│   ├── review/                     #   Review specifications
+│   ├── review_detail/              #   Review details specifications
+│   ├── role/                       #   Role management specifications
+│   ├── shipping_address/           #   Shipping address specifications
+│   ├── slider/                     #   Slider carousels specifications
+│   ├── transaction/                #   Payment transactions specifications
+│   └── user/                       #   User CRUD specifications
+├── common/                         # Shared Maven library Module
+│   └── src/main/java/io/example/common/
+│       ├── config/                 #   AppConfig, JwtConfig, RedisConfig, FlywayConfig
+│       ├── observability/          #   TracingMetrics config
+│       ├── service/                #   RedisService utilities
+│       └── pb/                     #   Compiled Java Protobuf gRPC stubs
+├── apigateway/                     # REST API Gateway (REST Router proxying to gRPC)
+├── auth/                           # Authentication engine verticle
+├── user/                           # User profiles verticle (CQRS)
+├── role/                           # RBAC authorization verticle
+├── merchant/                       # Merchant core verticle
+├── merchant_award/                 # Merchant awards verticle
+├── merchant_business/              # Merchant business details verticle
+├── merchant_detail/                # Merchant details verticle
+├── merchant_policy/                # Merchant policies verticle
+├── product/                        # Product management verticle
+├── category/                       # Category management verticle
+├── cart/                           # Shopping cart verticle
+├── order/                          # Order management verticle
+├── order_item/                     # Order item decomposition verticle
+├── transaction/                    # Payment recording verticle
+├── shipping_address/               # Shipping address management verticle
+├── banner/                         # Banner management verticle
+├── slider/                         # Slider carousels verticle
+├── review/                         # Product review verticle
+├── review_detail/                  # Review details verticle
+├── email/                          # Asynchronous Kafka notifications verticle
+├── deployments/
+│   ├── local/                      #   Docker compose infrastructure files
+│   └── kubernetes/                 #   Production K8s deployment manifests
+├── observability/                  #   Telemetry pipelines configurations (Loki, OTEL, Alertmanager)
+├── grafana/                        #   Pre-configured dashboard JSON files
+└── nginx/                          #   Reverse-proxy NGINX rules
+```
+
+---
+
+
+## License
+
+This project is open-sourced under the MIT License for educational and development purposes.
 
 ---
 
 <p align="center">
-  Built with Eclipse Vert.x, Java 21, and a passion for modern reactive system architecture.
+  Built with Java, Eclipse Vert.x, gRPC, Apache Kafka, and a passion for high-performance reactive modular monoliths.
 </p>
