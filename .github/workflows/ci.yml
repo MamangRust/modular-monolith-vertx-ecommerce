@@ -74,7 +74,7 @@ jobs:
       - name: Scan Built Image (Auth Service)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: 'monolith-payment-gateway-grpc-vertx/auth:latest'
+          image-ref: 'modular-monolith-vertx-ecommerce/auth:latest'
           severity: 'HIGH,CRITICAL'
           exit-code: '1'
 
@@ -91,6 +91,6 @@ jobs:
         run: |
           IMAGE_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           for service in db-migration auth user card merchant role saldo transaction topup transfer withdraw apigateway email; do
-            docker tag monolith-payment-gateway-grpc-vertx/${service}:latest ghcr.io/${IMAGE_OWNER}/vertx-payment-gateway/${service}:latest
+            docker tag modular-monolith-vertx-ecommerce/${service}:latest ghcr.io/${IMAGE_OWNER}/vertx-payment-gateway/${service}:latest
             docker push ghcr.io/${IMAGE_OWNER}/vertx-payment-gateway/${service}:latest
           done 
