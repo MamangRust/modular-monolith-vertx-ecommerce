@@ -1,13 +1,31 @@
 package io.example.category;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.example.category.handler.CategoryCommandHandler;
+import io.example.category.handler.CategoryQueryHandler;
+import io.example.category.handler.CategoryStatsByIdHandler;
+import io.example.category.handler.CategoryStatsByMerchantHandler;
+import io.example.category.handler.CategoryStatsHandler;
+import io.example.category.repository.impl.CategoryCommandRepositoryImpl;
+import io.example.category.repository.impl.CategoryQueryRepositoryImpl;
+import io.example.category.repository.impl.CategoryStatsByIdRepositoryImpl;
+import io.example.category.repository.impl.CategoryStatsByMerchantRepositoryImpl;
+import io.example.category.repository.impl.CategoryStatsRepositoryImpl;
+import io.example.category.service.impl.CategoryCommandServiceImpl;
+import io.example.category.service.impl.CategoryQueryServiceImpl;
+import io.example.category.service.impl.CategoryStatsByIdServiceImpl;
+import io.example.category.service.impl.CategoryStatsByMerchantServiceImpl;
+import io.example.category.service.impl.CategoryStatsServiceImpl;
 import io.example.common.config.AppConfig;
 import io.example.common.config.RedisConfig;
 import io.example.common.config.TelemetryConfig;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.category.handler.*;
-import io.example.category.repository.impl.*;
-import io.example.category.service.impl.*;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -20,24 +38,23 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.redis.client.RedisAPI;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class CategoryVerticle extends AbstractVerticle {
     private static final Logger log = LoggerFactory.getLogger(CategoryVerticle.class);
 
     private TelemetryConfig telemetryConfig;
+    private ChaosManager chaosManager;
 
     public static void main(String[] args) {
         Vertx vertx = Vertx.vertx();
 
         JsonObject config = new JsonObject()
                 .put("database", new JsonObject()
-                        .put("host", "localhost")
-                        .put("port", 5432)
-                        .put("database", "vertxdb")
-                        .put("user", "vertx")
-                        .put("password", "vertx")
+                        .put("host", "pgbouncer")
+                        .put("port", 6432)
+                        .put("database", "ECOMMERCE")
+                        .put("user", "DRAGON")
+                        .put("password", "DRAGON")
                         .put("pool_size", 5))
                 .put("grpc_port", 8082)
                 .put("service.name", "category-service");
@@ -82,12 +99,15 @@ public class CategoryVerticle extends AbstractVerticle {
                 .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
         Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+        chaosManager = new ChaosManager();
+        chaosManager.startWatcher(vertx);
+        Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
-        var queryRepo = new CategoryQueryRepositoryImpl(pool);
-        var cmdRepo = new CategoryCommandRepositoryImpl(pool);
-        var statsRepo = new CategoryStatsRepositoryImpl(pool);
-        var statsByIdRepo = new CategoryStatsByIdRepositoryImpl(pool);
-        var statsByMerchantRepo = new CategoryStatsByMerchantRepositoryImpl(pool);
+        var queryRepo = new CategoryQueryRepositoryImpl(chaosPool);
+        var cmdRepo = new CategoryCommandRepositoryImpl(chaosPool);
+        var statsRepo = new CategoryStatsRepositoryImpl(chaosPool);
+        var statsByIdRepo = new CategoryStatsByIdRepositoryImpl(chaosPool);
+        var statsByMerchantRepo = new CategoryStatsByMerchantRepositoryImpl(chaosPool);
 
         // 3. Initialize Caching
         RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -95,13 +115,14 @@ public class CategoryVerticle extends AbstractVerticle {
 
         // 4. Initialize Services
         var queryService = new CategoryQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-        var cmdService = new CategoryCommandServiceImpl(cmdRepo, redisService, tracingMetrics);
-        var statsService = new CategoryStatsServiceImpl(statsRepo, tracingMetrics);
-        var statsByIdService = new CategoryStatsByIdServiceImpl(statsByIdRepo, tracingMetrics);
-        var statsByMerchantService = new CategoryStatsByMerchantServiceImpl(statsByMerchantRepo, tracingMetrics);
+        var cmdService = new CategoryCommandServiceImpl(cmdRepo, queryRepo, redisService, tracingMetrics);
+        var statsService = new CategoryStatsServiceImpl(statsRepo, redisService, tracingMetrics);
+        var statsByIdService = new CategoryStatsByIdServiceImpl(statsByIdRepo, redisService, tracingMetrics);
+        var statsByMerchantService = new CategoryStatsByMerchantServiceImpl(statsByMerchantRepo, redisService,
+                tracingMetrics);
 
         // 5. Initialize Handlers
-        var queryHandler = new CategoryQueryHandler(queryService, statsService, statsByIdService, statsByMerchantService);
+        var queryHandler = new CategoryQueryHandler(queryService);
         var cmdHandler = new CategoryCommandHandler(cmdService);
         var statsHandler = new CategoryStatsHandler(statsService);
         var statsByIdHandler = new CategoryStatsByIdHandler(statsByIdService);
@@ -144,7 +165,7 @@ public class CategoryVerticle extends AbstractVerticle {
         statsByMerchantHandler.bindAll(grpcServer);
 
         return vertx.createHttpServer()
-                .requestHandler(grpcServer)
+                .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
                 .listen(grpcPort)
                 .mapEmpty();
     }

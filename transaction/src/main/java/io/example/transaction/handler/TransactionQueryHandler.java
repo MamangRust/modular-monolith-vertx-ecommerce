@@ -1,202 +1,138 @@
 package io.example.transaction.handler;
 
-import io.example.transaction.model.FindAllTransaction;
-import io.example.transaction.model.FindAllTransactionByMerchant;
+import io.example.common.domain.PagedResult;
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.transaction.domain.requests.FindAllTransaction;
+import io.example.transaction.domain.requests.FindAllTransactionByMerchant;
+import io.example.transaction.model.Transaction;
 import io.example.transaction.service.TransactionQueryService;
 import io.vertx.core.Future;
-import pb.transaction.TransactionCommon.*;
-import pb.transaction.TransactionQuery.*;
-import pb.transaction.VertxTransactionQueryServiceGrpcServer;
+import lombok.RequiredArgsConstructor;
+import pb.transaction.TransactionCommon.ApiResponsePaginationTransaction;
+import pb.transaction.TransactionCommon.ApiResponsePaginationTransactionDeleteAt;
+import pb.transaction.TransactionCommon.ApiResponseTransaction;
+import pb.transaction.TransactionCommon.FindByIdTransactionRequest;
+import pb.transaction.TransactionQuery.FindAllTransactionRequest;
+import pb.transaction.TransactionQuery.FindAllTransactionByMerchantRequest;
+import pb.transaction.TransactionQuery.FindByOrderIdTransactionRequest;
+import pb.transaction.VertxTransactionQueryServiceGrpcServer.TransactionQueryServiceApi;
 
-public class TransactionQueryHandler implements VertxTransactionQueryServiceGrpcServer.TransactionQueryServiceApi {
-    private final TransactionQueryService service;
+@RequiredArgsConstructor
+public class TransactionQueryHandler implements TransactionQueryServiceApi {
+        private final TransactionQueryService service;
 
-    public TransactionQueryHandler(TransactionQueryService service) {
-        this.service = service;
-    }
+        private FindAllTransaction toDomainReq(FindAllTransactionRequest req) {
+                return FindAllTransaction.builder()
+                                .search(req.getSearch())
+                                .page(req.getPage() > 0 ? req.getPage() : 1)
+                                .pageSize(req.getPageSize() > 0 ? req.getPageSize() : 10)
+                                .build();
+        }
 
-    @Override
-    public Future<ApiResponsePaginationTransaction> findAllTransactions(FindAllTransactionRequest req) {
-        FindAllTransaction reqDto = FindAllTransaction.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
+        private FindAllTransactionByMerchant toDomainReqByMerchant(FindAllTransactionByMerchantRequest req) {
+                return FindAllTransactionByMerchant.builder()
+                                .merchantId(req.getMerchantId())
+                                .search(req.getSearch())
+                                .page(req.getPage() > 0 ? req.getPage() : 1)
+                                .pageSize(req.getPageSize() > 0 ? req.getPageSize() : 10)
+                                .build();
+        }
 
-        return service.getTransactions(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationTransaction.Builder builder = ApiResponsePaginationTransaction.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null && res.data().getData() != null) {
-                        builder.addAllData(res.data().getData().stream()
-                                .map(ProtoConverter::toProtoResponse)
-                                .toList());
-                    }
-
-                    if (res.data() != null) {
-                        int currentPage = req.getPage() > 0 ? req.getPage() : 1;
-                        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-                        int totalRecords = res.data().getTotalRecords();
-                        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
-
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
+        private pb.Api.PaginationMeta toMeta(int totalRecords, int page, int pageSize) {
+                int currentPage = page > 0 ? page : 1;
+                int size = pageSize > 0 ? pageSize : 10;
+                int totalPages = size > 0 ? (int) Math.ceil((double) totalRecords / size) : 0;
+                return pb.Api.PaginationMeta.newBuilder()
                                 .setCurrentPage(currentPage)
-                                .setPageSize(pageSize)
+                                .setPageSize(size)
                                 .setTotalPages(totalPages)
                                 .setTotalRecords(totalRecords)
-                                .build());
-                    }
+                                .build();
+        }
 
-                    return builder.build();
-                });
-    }
+        @Override
+        public Future<ApiResponsePaginationTransaction> findAllTransactions(FindAllTransactionRequest req) {
+                FindAllTransaction domainReq = toDomainReq(req);
+                Future<PagedResult<Transaction>> transactionsFuture = service.getTransactions(domainReq);
+                return transactionsFuture
+                                .map(res -> ApiResponsePaginationTransaction.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toProtoResponse)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 
-    @Override
-    public Future<ApiResponsePaginationTransaction> findByMerchant(FindAllTransactionByMerchantRequest req) {
-        FindAllTransactionByMerchant reqDto = FindAllTransactionByMerchant.builder()
-                .merchantId(req.getMerchantId())
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
+        @Override
+        public Future<ApiResponsePaginationTransaction> findByActive(FindAllTransactionRequest req) {
+                FindAllTransaction domainReq = toDomainReq(req);
+                Future<PagedResult<Transaction>> activeFuture = service.getTransactionsActive(domainReq);
+                return activeFuture
+                                .map(res -> ApiResponsePaginationTransaction.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toProtoResponse)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 
-        return service.getTransactionByMerchant(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationTransaction.Builder builder = ApiResponsePaginationTransaction.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
+        @Override
+        public Future<ApiResponsePaginationTransactionDeleteAt> findByTrashed(FindAllTransactionRequest req) {
+                FindAllTransaction domainReq = toDomainReq(req);
+                Future<PagedResult<Transaction>> trashedFuture = service.getTransactionsTrashed(domainReq);
+                return trashedFuture
+                                .map(res -> ApiResponsePaginationTransactionDeleteAt.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::toProtoResponseDeleteAt).toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 
-                    if (res.data() != null && res.data().getData() != null) {
-                        builder.addAllData(res.data().getData().stream()
-                                .map(ProtoConverter::toProtoResponse)
-                                .toList());
-                    }
+        @Override
+        public Future<ApiResponsePaginationTransaction> findByMerchant(FindAllTransactionByMerchantRequest req) {
+                FindAllTransactionByMerchant domainReq = toDomainReqByMerchant(req);
+                Future<PagedResult<Transaction>> merchantFuture = service.getTransactionByMerchant(domainReq);
+                return merchantFuture
+                                .map(res -> ApiResponsePaginationTransaction.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toProtoResponse)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 
-                    if (res.data() != null) {
-                        int currentPage = req.getPage() > 0 ? req.getPage() : 1;
-                        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-                        int totalRecords = res.data().getTotalRecords();
-                        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
+        @Override
+        public Future<ApiResponseTransaction> findById(FindByIdTransactionRequest req) {
+                return service.getTransactionById((long) req.getId())
+                                .map(res -> ApiResponseTransaction.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .setData(ProtoConverter.toProtoResponse(res))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(currentPage)
-                                .setPageSize(pageSize)
-                                .setTotalPages(totalPages)
-                                .setTotalRecords(totalRecords)
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponseTransaction> findById(FindByIdTransactionRequest req) {
-        return service.getTransactionById((long) req.getId())
-                .map(res -> {
-                    ApiResponseTransaction.Builder builder = ApiResponseTransaction.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.setData(ProtoConverter.toProtoResponse(res.data()));
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponseTransaction> findByOrderId(FindByOrderIdTransactionRequest req) {
-        return service.getTransactionByOrderId((long) req.getOrderId())
-                .map(res -> {
-                    ApiResponseTransaction.Builder builder = ApiResponseTransaction.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.setData(ProtoConverter.toProtoResponse(res.data()));
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationTransaction> findByActive(FindAllTransactionRequest req) {
-        FindAllTransaction reqDto = FindAllTransaction.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getTransactionsActive(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationTransaction.Builder builder = ApiResponsePaginationTransaction.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null && res.data().getData() != null) {
-                        builder.addAllData(res.data().getData().stream()
-                                .map(ProtoConverter::toProtoResponse)
-                                .toList());
-                    }
-
-                    if (res.data() != null) {
-                        int currentPage = req.getPage() > 0 ? req.getPage() : 1;
-                        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-                        int totalRecords = res.data().getTotalRecords();
-                        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
-
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(currentPage)
-                                .setPageSize(pageSize)
-                                .setTotalPages(totalPages)
-                                .setTotalRecords(totalRecords)
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationTransactionDeleteAt> findByTrashed(FindAllTransactionRequest req) {
-        FindAllTransaction reqDto = FindAllTransaction.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getTransactionsTrashed(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationTransactionDeleteAt.Builder builder = ApiResponsePaginationTransactionDeleteAt.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null && res.data().getData() != null) {
-                        builder.addAllData(res.data().getData().stream()
-                                .map(ProtoConverter::toProtoResponseDeleteAt)
-                                .toList());
-                    }
-
-                    if (res.data() != null) {
-                        int currentPage = req.getPage() > 0 ? req.getPage() : 1;
-                        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-                        int totalRecords = res.data().getTotalRecords();
-                        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
-
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(currentPage)
-                                .setPageSize(pageSize)
-                                .setTotalPages(totalPages)
-                                .setTotalRecords(totalRecords)
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
+        @Override
+        public Future<ApiResponseTransaction> findByOrderId(FindByOrderIdTransactionRequest req) {
+                return service.getTransactionByOrderId((long) req.getOrderId())
+                                .map(res -> ApiResponseTransaction.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .setData(ProtoConverter.toProtoResponse(res))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 }

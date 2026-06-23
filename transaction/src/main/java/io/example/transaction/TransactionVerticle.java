@@ -3,17 +3,46 @@ package io.example.transaction;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.example.common.config.AppConfig;
 import io.example.common.config.RedisConfig;
 import io.example.common.config.TelemetryConfig;
 import io.example.common.observability.TracingMetrics;
-import io.example.common.service.RedisService;
 import io.example.common.service.KafkaService;
-import io.example.transaction.handler.*;
-import io.example.transaction.repository.*;
-import io.example.transaction.repository.impl.*;
-import io.example.transaction.service.*;
-import io.example.transaction.service.impl.*;
+import io.example.common.service.RedisService;
+import io.example.transaction.handler.TransactionCommandHandler;
+import io.example.transaction.handler.TransactionQueryHandler;
+import io.example.transaction.handler.TransactionStatsByMerchantHandler;
+import io.example.transaction.handler.TransactionStatsHandler;
+import io.example.transaction.repository.MerchantQueryRepository;
+import io.example.transaction.repository.OrderItemRepository;
+import io.example.transaction.repository.OrderQueryRepository;
+import io.example.transaction.repository.ShippingAddressQueryRepository;
+import io.example.transaction.repository.TransactionCommandRepository;
+import io.example.transaction.repository.TransactionQueryRepository;
+import io.example.transaction.repository.TransactionStatsByMerchantRepository;
+import io.example.transaction.repository.TransactionStatsRepository;
+import io.example.transaction.repository.UserQueryRepository;
+import io.example.transaction.repository.impl.MerchantQueryRepositoryImpl;
+import io.example.transaction.repository.impl.OrderItemRepositoryImpl;
+import io.example.transaction.repository.impl.OrderQueryRepositoryImpl;
+import io.example.transaction.repository.impl.ShippingAddressQueryRepositoryImpl;
+import io.example.transaction.repository.impl.TransactionCommandRepositoryImpl;
+import io.example.transaction.repository.impl.TransactionQueryRepositoryImpl;
+import io.example.transaction.repository.impl.TransactionStatsByMerchantRepositoryImpl;
+import io.example.transaction.repository.impl.TransactionStatsRepositoryImpl;
+import io.example.transaction.repository.impl.UserQueryRepositoryImpl;
+import io.example.transaction.service.TransactionCommandService;
+import io.example.transaction.service.TransactionQueryService;
+import io.example.transaction.service.TransactionStatsByMerchantService;
+import io.example.transaction.service.TransactionStatsService;
+import io.example.transaction.service.impl.TransactionCommandServiceImpl;
+import io.example.transaction.service.impl.TransactionQueryServiceImpl;
+import io.example.transaction.service.impl.TransactionStatsByMerchantServiceImpl;
+import io.example.transaction.service.impl.TransactionStatsServiceImpl;
+import io.example.transaction.service.kafka.TransactionKafkaConsumerService;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -27,26 +56,29 @@ import io.vertx.grpc.server.GrpcServer;
 import io.vertx.kafka.client.producer.KafkaProducer;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.redis.client.RedisAPI;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TransactionVerticle extends AbstractVerticle {
     private static final Logger log = LoggerFactory.getLogger(TransactionVerticle.class);
 
     private TelemetryConfig telemetryConfig;
     private GrpcClient grpcClient;
+    private ChaosManager chaosManager;
     private KafkaService kafkaService;
+    private TransactionKafkaConsumerService kafkaConsumerService;
 
     public static void main(String[] args) {
         Vertx vertx = Vertx.vertx();
 
         JsonObject config = new JsonObject()
                 .put("database", new JsonObject()
-                        .put("host", "localhost")
-                        .put("port", 5444)
-                        .put("database", "ecommerce_transaction")
+                        .put("host", "pgbouncer")
+                        .put("port", 6432)
+                        .put("database", "ECOMMERCE")
                         .put("user", "DRAGON")
                         .put("password", "DRAGON")
                         .put("pool_size", 5))
@@ -93,11 +125,14 @@ public class TransactionVerticle extends AbstractVerticle {
                 .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
         Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+        chaosManager = new ChaosManager();
+        chaosManager.startWatcher(vertx);
+        Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
-        TransactionQueryRepository queryRepo = new TransactionQueryRepositoryImpl(pool);
-        TransactionCommandRepository cmdRepo = new TransactionCommandRepositoryImpl(pool);
-        TransactionStatsRepository statsRepo = new TransactionStatsRepositoryImpl(pool);
-        TransactionStatsByMerchantRepository merchantStatsRepo = new TransactionStatsByMerchantRepositoryImpl(pool);
+        TransactionQueryRepository queryRepo = new TransactionQueryRepositoryImpl(chaosPool);
+        TransactionCommandRepository cmdRepo = new TransactionCommandRepositoryImpl(chaosPool);
+        TransactionStatsRepository statsRepo = new TransactionStatsRepositoryImpl(chaosPool);
+        TransactionStatsByMerchantRepository merchantStatsRepo = new TransactionStatsByMerchantRepositoryImpl(chaosPool);
 
         // 3. Initialize unified gRPC Client pool & microservice client adapters
         grpcClient = GrpcClient.client(vertx);
@@ -132,13 +167,18 @@ public class TransactionVerticle extends AbstractVerticle {
         RedisAPI redisAPI = RedisConfig.createClient(vertx);
         RedisService redisService = new RedisService(redisAPI, openTelemetry);
 
-        // 6. Initialize Services
+        // 6. Initialize Kafka Consumer Service (internal event processing)
+        this.kafkaConsumerService = new TransactionKafkaConsumerService(vertx, redisService, openTelemetry);
+
+        // 7. Initialize Services
         TransactionQueryService queryService = new TransactionQueryServiceImpl(queryRepo, redisService, tracingMetrics);
         TransactionCommandService cmdService = new TransactionCommandServiceImpl(
-                cmdRepo, merchantQueryRepo, orderQueryRepo, orderItemRepo, shippingAddressRepo, userQueryRepo, redisService, tracingMetrics, kafkaService
-        );
+                cmdRepo, queryRepo, merchantQueryRepo, orderQueryRepo, orderItemRepo, shippingAddressRepo,
+                userQueryRepo,
+                redisService, tracingMetrics, kafkaService);
         TransactionStatsService statsService = new TransactionStatsServiceImpl(statsRepo, redisService, tracingMetrics);
-        TransactionStatsByMerchantService merchantStatsService = new TransactionStatsByMerchantServiceImpl(merchantStatsRepo, redisService, tracingMetrics);
+        TransactionStatsByMerchantService merchantStatsService = new TransactionStatsByMerchantServiceImpl(
+                merchantStatsRepo, redisService, tracingMetrics);
 
         // 7. Initialize Handlers
         var queryHandler = new TransactionQueryHandler(queryService);
@@ -169,6 +209,9 @@ public class TransactionVerticle extends AbstractVerticle {
         }
         if (kafkaService != null) {
             kafkaService.close();
+        }
+        if (kafkaConsumerService != null) {
+            kafkaConsumerService.close();
         }
         stopPromise.complete();
     }
@@ -204,7 +247,7 @@ public class TransactionVerticle extends AbstractVerticle {
         merchantStatsHandler.bindAll(grpcServer);
 
         return vertx.createHttpServer()
-                .requestHandler(grpcServer)
+                .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
                 .listen(grpcPort)
                 .mapEmpty();
     }

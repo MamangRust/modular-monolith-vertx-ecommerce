@@ -1,199 +1,119 @@
 package io.example.review.handler;
 
-import io.example.review.model.FindAllReview;
-import io.example.review.model.FindAllReviewByProduct;
-import io.example.review.model.FindAllReviewByMerchant;
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.review.domain.requests.FindAllReview;
+import io.example.review.domain.requests.FindAllReviewByMerchant;
+import io.example.review.domain.requests.FindAllReviewByProduct;
 import io.example.review.service.ReviewQueryService;
 import io.vertx.core.Future;
-
+import lombok.RequiredArgsConstructor;
 import pb.review.ReviewCommon.ApiResponsePaginationReview;
 import pb.review.ReviewCommon.ApiResponsePaginationReviewDeleteAt;
 import pb.review.ReviewCommon.ApiResponsePaginationReviewDetail;
 import pb.review.ReviewCommon.ApiResponseReview;
-import pb.review.ReviewCommon.FindByIdReviewRequest;
+import pb.review.ReviewQuery.FindAllReviewMerchantRequest;
+import pb.review.ReviewQuery.FindAllReviewProductRequest;
 import pb.review.ReviewQuery.FindAllReviewRequest;
 
-import pb.review.ReviewQuery.FindAllReviewProductRequest;
-import pb.review.ReviewQuery.FindAllReviewMerchantRequest;
-
+@RequiredArgsConstructor
 public class ReviewQueryHandler implements pb.review.VertxReviewQueryServiceGrpcServer.ReviewQueryServiceApi {
-    private final ReviewQueryService service;
+        private final ReviewQueryService service;
 
-    public ReviewQueryHandler(ReviewQueryService service) {
-        this.service = service;
-    }
+        private pb.Api.PaginationMeta toMeta(int totalRecords, int page, int pageSize) {
+                int currentPage = page > 0 ? page : 1;
+                int size = pageSize > 0 ? pageSize : 10;
+                int totalPages = size > 0 ? (int) Math.ceil((double) totalRecords / size) : 0;
+                return pb.Api.PaginationMeta.newBuilder()
+                                .setCurrentPage(currentPage)
+                                .setPageSize(size)
+                                .setTotalPages(totalPages)
+                                .setTotalRecords(totalRecords)
+                                .build();
+        }
 
-    @Override
-    public Future<ApiResponsePaginationReview> findAll(FindAllReviewRequest req) {
-        FindAllReview reqDto = FindAllReview.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
+        @Override
+        public Future<ApiResponsePaginationReview> findAll(FindAllReviewRequest req) {
+                FindAllReview reqDto = FindAllReview.builder().page(req.getPage()).pageSize(req.getPageSize())
+                                .search(req.getSearch()).build();
+                return service.getAllReviews(reqDto)
+                                .map(res -> ApiResponsePaginationReview.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toReviewResponse)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), reqDto.getPage(),
+                                                                reqDto.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-        return service.getAllReviews(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationReview.Builder builder = ApiResponsePaginationReview.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
+        @Override
+        public Future<ApiResponsePaginationReviewDetail> findByProduct(FindAllReviewProductRequest req) {
+                FindAllReviewByProduct reqDto = FindAllReviewByProduct.builder().productId((long) req.getProductId())
+                                .page(req.getPage()).pageSize(req.getPageSize()).build();
+                return service.getReviewByProduct(reqDto)
+                                .map(res -> ApiResponsePaginationReviewDetail.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::toReviewsDetailResponse).toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), reqDto.getPage(),
+                                                                reqDto.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toReviewResponse).toList());
-                    }
+        @Override
+        public Future<ApiResponsePaginationReviewDetail> findByMerchant(FindAllReviewMerchantRequest req) {
+                FindAllReviewByMerchant reqDto = FindAllReviewByMerchant.builder()
+                                .merchantId((long) req.getMerchantId())
+                                .page(req.getPage()).pageSize(req.getPageSize()).build();
+                return service.getReviewByMerchant(reqDto)
+                                .map(res -> ApiResponsePaginationReviewDetail.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::toReviewsDetailResponse).toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), reqDto.getPage(),
+                                                                reqDto.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
+        @Override
+        public Future<ApiResponsePaginationReviewDeleteAt> findByActive(FindAllReviewRequest req) {
+                FindAllReview reqDto = FindAllReview.builder().page(req.getPage()).pageSize(req.getPageSize())
+                                .search(req.getSearch()).build();
+                return service.getActiveReviews(reqDto)
+                                .map(res -> ApiResponsePaginationReviewDeleteAt.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toReviewDeleteAt)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), reqDto.getPage(),
+                                                                reqDto.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-                    return builder.build();
-                });
-    }
+        @Override
+        public Future<ApiResponsePaginationReviewDeleteAt> findByTrashed(FindAllReviewRequest req) {
+                FindAllReview reqDto = FindAllReview.builder().page(req.getPage()).pageSize(req.getPageSize())
+                                .search(req.getSearch()).build();
+                return service.getTrashedReviews(reqDto)
+                                .map(res -> ApiResponsePaginationReviewDeleteAt.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toReviewDeleteAt)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), reqDto.getPage(),
+                                                                reqDto.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-    @Override
-    public Future<ApiResponsePaginationReviewDetail> findByProduct(FindAllReviewProductRequest req) {
-        FindAllReviewByProduct reqDto = FindAllReviewByProduct.builder()
-                .productId((long) req.getProductId())
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getReviewByProduct(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationReviewDetail.Builder builder = ApiResponsePaginationReviewDetail.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toReviewsDetailResponse).toList());
-                    }
-
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationReviewDetail> findByMerchant(FindAllReviewMerchantRequest req) {
-        FindAllReviewByMerchant reqDto = FindAllReviewByMerchant.builder()
-                .merchantId((long) req.getMerchantId())
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getReviewByMerchant(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationReviewDetail.Builder builder = ApiResponsePaginationReviewDetail.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toReviewsDetailResponse).toList());
-                    }
-
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationReviewDeleteAt> findByActive(FindAllReviewRequest req) {
-        FindAllReview reqDto = FindAllReview.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getActiveReviews(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationReviewDeleteAt.Builder builder = ApiResponsePaginationReviewDeleteAt.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toReviewDeleteAt).toList());
-                    }
-
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationReviewDeleteAt> findByTrashed(FindAllReviewRequest req) {
-        FindAllReview reqDto = FindAllReview.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getTrashedReviews(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationReviewDeleteAt.Builder builder = ApiResponsePaginationReviewDeleteAt.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toReviewDeleteAt).toList());
-                    }
-
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponseReview> findById(pb.review.ReviewCommon.FindByIdReviewRequest req) {
-        return service.getReviewById((long) req.getId())
-                .map(res -> {
-                    ApiResponseReview.Builder builder = ApiResponseReview.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.setData(ProtoConverter.toReviewResponse(res.data()));
-                    }
-
-                    return builder.build();
-                });
-    }
+        @Override
+        public Future<ApiResponseReview> findById(pb.review.ReviewCommon.FindByIdReviewRequest req) {
+                return service.getReviewById((long) req.getId())
+                                .map(data -> ApiResponseReview.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .setData(ProtoConverter.toReviewResponse(data))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 }
-

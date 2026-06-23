@@ -1,73 +1,95 @@
 package io.example.merchant.handler;
 
+import io.example.common.domain.PagedResult;
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.merchant.domain.requests.FindAllMerchantRequest;
+import io.example.merchant.model.MerchantResponse;
+import io.example.merchant.model.MerchantResponseDeleteAt;
 import io.example.merchant.service.MerchantQueryService;
 import io.vertx.core.Future;
-import pb.merchant.MerchantCommon.*;
-import pb.merchant.MerchantQuery.*;
+import lombok.RequiredArgsConstructor;
+import pb.merchant.MerchantCommon.ApiResponseMerchant;
+import pb.merchant.MerchantCommon.ApiResponsePaginationMerchant;
+import pb.merchant.MerchantCommon.ApiResponsePaginationMerchantDeleteAt;
+import pb.merchant.MerchantCommon.FindByIdMerchantRequest;
+import pb.merchant.VertxMerchantQueryServiceGrpcServer.MerchantQueryServiceApi;
 
-public class MerchantQueryHandler implements pb.merchant.VertxMerchantQueryServiceGrpcServer.MerchantQueryServiceApi {
+@RequiredArgsConstructor
+public class MerchantQueryHandler implements MerchantQueryServiceApi {
   private final MerchantQueryService service;
 
-  public MerchantQueryHandler(MerchantQueryService service) {
-    this.service = service;
+  private FindAllMerchantRequest toDomainReq(pb.merchant.MerchantQuery.FindAllMerchantRequest req) {
+    return FindAllMerchantRequest.builder()
+        .search(req.getSearch())
+        .page(req.getPage() > 0 ? req.getPage() : 1)
+        .pageSize(req.getPageSize() > 0 ? req.getPageSize() : 10)
+        .build();
   }
 
-  private pb.Api.PaginationMeta toMeta(io.example.common.model.PaginationMeta meta) {
-    if (meta == null) {
-      return pb.Api.PaginationMeta.getDefaultInstance();
-    }
+  private pb.Api.PaginationMeta toMeta(int totalRecords, int page, int pageSize) {
+    int currentPage = page > 0 ? page : 1;
+    int size = pageSize > 0 ? pageSize : 10;
+    int totalPages = size > 0 ? (int) Math.ceil((double) totalRecords / size) : 0;
     return pb.Api.PaginationMeta.newBuilder()
-        .setCurrentPage(meta.currentPage())
-        .setPageSize(meta.pageSize())
-        .setTotalPages(meta.totalPages())
-        .setTotalRecords(meta.totalRecords())
+        .setCurrentPage(currentPage)
+        .setPageSize(size)
+        .setTotalPages(totalPages)
+        .setTotalRecords(totalRecords)
         .build();
   }
 
   @Override
-  public Future<ApiResponsePaginationMerchant> findAll(FindAllMerchantRequest req) {
-    return service.getAllMerchants(req)
-        .map(resp -> ApiResponsePaginationMerchant.newBuilder()
-            .setStatus(resp.status())
-            .setMessage(resp.message())
-            .addAllData(resp.data().stream().map(ProtoConverter::fromMerchantResponse).toList())
-            .setPagination(toMeta(resp.pagination()))
-            .build());
+  public Future<ApiResponsePaginationMerchant> findAll(pb.merchant.MerchantQuery.FindAllMerchantRequest req) {
+    FindAllMerchantRequest domainReq = toDomainReq(req);
+    Future<PagedResult<MerchantResponse>> merchantsFuture = service.getAllMerchants(domainReq);
+    return merchantsFuture
+        .map(res -> ApiResponsePaginationMerchant.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .addAllData(res.getData().stream().map(ProtoConverter::fromMerchantResponse).toList())
+            .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseMerchant> findById(FindByIdMerchantRequest req) {
-    return service.getMerchantById(req.getId())
-        .map(resp -> {
-          var builder = ApiResponseMerchant.newBuilder()
-              .setStatus(resp.status())
-              .setMessage(resp.message());
-          if (resp.data() != null) {
-            builder.setData(ProtoConverter.fromMerchantResponse(resp.data()));
-          }
-          return builder.build();
-        });
+    return service.getMerchantById((long) req.getId())
+        .map(res -> ApiResponseMerchant.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .setData(ProtoConverter.fromMerchantResponse(res))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
-  public Future<ApiResponsePaginationMerchantDeleteAt> findByActive(FindAllMerchantRequest req) {
-    return service.getActiveMerchants(req)
-        .map(resp -> ApiResponsePaginationMerchantDeleteAt.newBuilder()
-            .setStatus(resp.status())
-            .setMessage(resp.message())
-            .addAllData(resp.data().stream().map(ProtoConverter::fromMerchantResponseDeleteAt).toList())
-            .setPagination(toMeta(resp.pagination()))
-            .build());
+  public Future<ApiResponsePaginationMerchantDeleteAt> findByActive(
+      pb.merchant.MerchantQuery.FindAllMerchantRequest req) {
+    FindAllMerchantRequest domainReq = toDomainReq(req);
+    Future<PagedResult<MerchantResponseDeleteAt>> activeFuture = service.getActiveMerchants(domainReq);
+    return activeFuture
+        .map(res -> ApiResponsePaginationMerchantDeleteAt.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .addAllData(res.getData().stream().map(ProtoConverter::fromMerchantResponseDeleteAt).toList())
+            .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
-  public Future<ApiResponsePaginationMerchantDeleteAt> findByTrashed(FindAllMerchantRequest req) {
-    return service.getTrashedMerchants(req)
-        .map(resp -> ApiResponsePaginationMerchantDeleteAt.newBuilder()
-            .setStatus(resp.status())
-            .setMessage(resp.message())
-            .addAllData(resp.data().stream().map(ProtoConverter::fromMerchantResponseDeleteAt).toList())
-            .setPagination(toMeta(resp.pagination()))
-            .build());
+  public Future<ApiResponsePaginationMerchantDeleteAt> findByTrashed(
+      pb.merchant.MerchantQuery.FindAllMerchantRequest req) {
+    FindAllMerchantRequest domainReq = toDomainReq(req);
+    Future<PagedResult<MerchantResponseDeleteAt>> trashedFuture = service.getTrashedMerchants(domainReq);
+    return trashedFuture
+        .map(res -> ApiResponsePaginationMerchantDeleteAt.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .addAllData(res.getData().stream().map(ProtoConverter::fromMerchantResponseDeleteAt).toList())
+            .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 }

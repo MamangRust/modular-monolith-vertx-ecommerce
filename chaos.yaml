@@ -1,0 +1,167 @@
+warmup_duration: "10s"
+enable_default_ignored: true
+policies:
+  - name: "http-get-products-limit"
+    type: "http"
+    target: "GET:/products"
+    enabled: false
+    errorChance: 0.5
+    errorCode: 429
+    errorBody: '{"error":"too_many_requests","message":"Rate limit exceeded by chaos simulation"}'
+    latencyMs: 1000
+
+  - name: "http-get-categories-delay"
+    type: "http"
+    target: "GET:/categories"
+    enabled: false
+    errorChance: 0.2
+    latencyMs: 1500
+
+  - name: "http-post-orders-failure"
+    type: "http"
+    target: "POST:/orders"
+    enabled: false
+    errorChance: 0.1
+    errorCode: 503
+    errorBody: '{"error":"service_unavailable","message":"Simulated order placement chaos failure"}'
+
+  - name: "sql-user-query-deadlock"
+    type: "sql"
+    target: "users"
+    enabled: false
+    errorChance: 0.2
+    errorMessage: "ERROR: deadlock detected (simulated chaos)"
+    latencyMs: 500
+
+  - name: "sql-role-query-deadlock"
+    type: "sql"
+    target: "roles"
+    enabled: false
+    errorChance: 0.2
+    errorMessage: "ERROR: deadlock detected (simulated chaos)"
+    latencyMs: 300
+
+  - name: "sql-banner-query-delay"
+    type: "sql"
+    target: "banners"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 800
+
+  - name: "sql-cart-query-delay"
+    type: "sql"
+    target: "carts"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 500
+
+  - name: "sql-category-query-delay"
+    type: "sql"
+    target: "categories"
+    enabled: false
+    errorChance: 0.2
+    latencyMs: 400
+
+  - name: "sql-merchant-query-delay"
+    type: "sql"
+    target: "merchants"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 1000
+
+  - name: "sql-merchant-award-query-delay"
+    type: "sql"
+    target: "merchant_awards"
+    enabled: false
+    errorChance: 0.25
+    latencyMs: 600
+
+  - name: "sql-merchant-business-query-delay"
+    type: "sql"
+    target: "merchant_businesses"
+    enabled: false
+    errorChance: 0.25
+    latencyMs: 600
+
+  - name: "sql-merchant-detail-query-delay"
+    type: "sql"
+    target: "merchant_details"
+    enabled: false
+    errorChance: 0.25
+    latencyMs: 700
+
+  - name: "sql-merchant-policy-query-delay"
+    type: "sql"
+    target: "merchant_policies"
+    enabled: false
+    errorChance: 0.25
+    latencyMs: 600
+
+  - name: "sql-order-query-deadlock"
+    type: "sql"
+    target: "orders"
+    enabled: false
+    errorChance: 0.2
+    errorMessage: "ERROR: deadlock detected (simulated chaos)"
+    latencyMs: 800
+
+  - name: "sql-order-item-query-delay"
+    type: "sql"
+    target: "order_items"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 500
+
+  - name: "sql-product-query-delay"
+    type: "sql"
+    target: "products"
+    enabled: false
+    errorChance: 0.35
+    latencyMs: 800
+
+  - name: "sql-review-query-delay"
+    type: "sql"
+    target: "reviews"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 700
+
+  - name: "sql-review-detail-query-delay"
+    type: "sql"
+    target: "review_details"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 700
+
+  - name: "sql-shipping-address-query-delay"
+    type: "sql"
+    target: "shipping_addresses"
+    enabled: false
+    errorChance: 0.25
+    latencyMs: 600
+
+  - name: "sql-slider-query-delay"
+    type: "sql"
+    target: "sliders"
+    enabled: false
+    errorChance: 0.3
+    latencyMs: 800
+
+  - name: "sql-transaction-query-delay"
+    type: "sql"
+    target: "transactions"
+    enabled: false
+    errorChance: 0.2
+    latencyMs: 1200
+
+  - name: "cpu-pressure-test"
+    type: "cpu"
+    enabled: false
+    cpuCores: 2
+    duration: "2m"
+
+  - name: "memory-leak-test"
+    type: "memory"
+    enabled: false
+    memoryMb: 100
+    duration: "2m"

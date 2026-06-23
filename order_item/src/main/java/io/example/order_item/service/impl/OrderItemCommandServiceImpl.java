@@ -1,292 +1,204 @@
 package io.example.order_item.service.impl;
 
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.exception.NotFoundException;
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.order_item.model.OrderItem;
 import io.example.order_item.model.OrderItemResponse;
 import io.example.order_item.model.OrderItemResponseDeleteAt;
 import io.example.order_item.repository.OrderItemCommandRepository;
+import io.example.order_item.repository.OrderItemQueryRepository;
 import io.example.order_item.service.OrderItemCommandService;
+import io.example.order_item.domain.requests.CreateOrderItemRecordRequest;
+import io.example.order_item.domain.requests.UpdateOrderItemRecordRequest;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.order_item.OrderItemCommand.CreateOrderItemRecordRequest;
-import pb.order_item.OrderItemCommand.UpdateOrderItemRecordRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class OrderItemCommandServiceImpl implements OrderItemCommandService {
-    private static final Logger logger = LoggerFactory.getLogger(OrderItemCommandServiceImpl.class);
+        private static final Logger logger = LoggerFactory.getLogger(OrderItemCommandServiceImpl.class);
 
-    private final OrderItemCommandRepository repo;
-    private final RedisService redis;
-    private final TracingMetrics metrics;
+        private final OrderItemCommandRepository repo;
+        private final OrderItemQueryRepository queryRepository;
+        private final RedisService redis;
+        private final TracingMetrics metrics;
 
-    private static final String CACHE_PREFIX = "order_item:";
+        private static final String CACHE_PREFIX = "order_item:";
 
-    public OrderItemCommandServiceImpl(
-            OrderItemCommandRepository repo,
-            RedisService redis,
-            TracingMetrics metrics) {
-        this.repo = repo;
-        this.redis = redis;
-        this.metrics = metrics;
-    }
+        private Future<Void> evict(Long orderId) {
+                return redis.delete(CACHE_PREFIX + "order:" + orderId)
+                                .compose(v -> redis.deleteByPattern(CACHE_PREFIX + "all:*"))
+                                .compose(v -> redis.deleteByPattern(CACHE_PREFIX + "active:*"))
+                                .compose(v -> redis.deleteByPattern(CACHE_PREFIX + "trashed:*"))
+                                .<Void>mapEmpty();
+        }
 
-    private Future<Void> invalidateCaches(Integer orderId) {
-        return redis.delete(CACHE_PREFIX + "order:" + orderId)
-                .compose(v -> redis.deleteByPattern(CACHE_PREFIX + "all:*"))
-                .compose(v -> redis.deleteByPattern(CACHE_PREFIX + "active:*"))
-                .compose(v -> redis.deleteByPattern(CACHE_PREFIX + "trashed:*"))
-                .mapEmpty();
-    }
+        private Future<Void> evictAll() {
+                return redis.deleteByPattern(CACHE_PREFIX + "*").<Void>mapEmpty();
+        }
 
-    private Future<Void> invalidateAllCaches() {
-        return redis.deleteByPattern(CACHE_PREFIX + "*")
-                .mapEmpty();
-    }
+        @Override
+        public Future<OrderItemResponse> create(CreateOrderItemRecordRequest req) {
+                var ctx = metrics.startSpan("OrderItemCommandService.create",
+                                Attributes.builder()
+                                                .put("order.id", (long) req.getOrderId())
+                                                .put("product.id", (long) req.getProductId())
+                                                .build());
 
-    @Override
-    public Future<ApiResponse<OrderItemResponse>> create(CreateOrderItemRecordRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.create",
-                Attributes.builder()
-                        .put("order.id", (long) req.getOrderId())
-                        .put("product.id", (long) req.getProductId())
-                        .build());
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+                return repo.createOrderItem(req)
+                                .compose(created -> evict((long) req.getOrderId()).map(v -> created))
+                                .map(OrderItemResponse::from)
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "create",
+                                                "Order item created successfully"))
+                                .onFailure(e -> metrics.completeSpanError(ctx, "create", e.getMessage()));
+        }
 
-        logger.info("Creating order item for order ID: {}, product ID: {}", req.getOrderId(), req.getProductId());
+        @Override
+        public Future<OrderItemResponse> update(UpdateOrderItemRecordRequest req) {
+                var ctx = metrics.startSpan("OrderItemCommandService.update",
+                                Attributes.builder()
+                                                .put("order_item.id", (long) req.getOrderItemId())
+                                                .build());
 
-        return repo.createOrderItem(req.getOrderId(), req.getProductId(), req.getQuantity(), req.getPrice())
-                .compose(created -> {
-                    span.setAttribute("order_item.id", created.getOrderItemId());
-                    return invalidateCaches(req.getOrderId())
-                            .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                            .map(created);
-                })
-                .map(created -> {
-                    metrics.completeSpanSuccess(tracingContext, "create", "Order item created successfully");
-                    return ApiResponse.success("Order item created successfully", OrderItemResponse.from(created));
-                })
-                .recover(err -> {
-                    logger.error("Failed to create order item", err);
-                    metrics.completeSpanError(tracingContext, "create", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<OrderItemResponse>error("Failed to create order item: " + err.getMessage()));
-                });
-    }
+                return repo.updateOrderItem(req)
+                                .compose(updated -> {
+                                        if (updated == null) {
+                                                return Future.failedFuture(
+                                                                new NotFoundException("Order item not found"));
+                                        }
+                                        return evict((long) updated.getOrderId()).map(v -> updated);
+                                })
+                                .map(OrderItemResponse::from)
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "update",
+                                                "Order item updated successfully"))
+                                .onFailure(e -> metrics.completeSpanError(ctx, "update", e.getMessage()));
+        }
 
-    @Override
-    public Future<ApiResponse<OrderItemResponse>> update(UpdateOrderItemRecordRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.update",
-                Attributes.builder()
-                        .put("order_item.id", (long) req.getOrderItemId())
-                        .build());
+        @Override
+        public Future<List<OrderItemResponseDeleteAt>> trash(Long orderId) {
+                var ctx = metrics.startSpan("OrderItemCommandService.trash",
+                                Attributes.builder().put("order.id", orderId).build());
 
-        logger.info("Updating order item ID: {}, quantity: {}, price: {}", req.getOrderItemId(), req.getQuantity(), req.getPrice());
+                return repo.trashOrderItem(orderId)
+                                .compose(items -> evict(orderId).map(v -> items))
+                                .map(items -> items.stream().map(OrderItemResponseDeleteAt::from).toList())
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trash",
+                                                "Order items trashed successfully"))
+                                .onFailure(e -> metrics.completeSpanError(ctx, "trash", e.getMessage()));
+        }
 
-        return repo.updateOrderItem(req.getOrderItemId(), req.getQuantity(), req.getPrice())
-                .compose(updated -> {
-                    if (updated == null) {
-                        return Future.failedFuture(new NotFoundException("Order item not found"));
-                    }
-                    return invalidateCaches(updated.getOrderId())
-                            .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                            .map(updated);
-                })
-                .map(updated -> {
-                    metrics.completeSpanSuccess(tracingContext, "update", "Order item updated successfully");
-                    return ApiResponse.success("Order item updated successfully", OrderItemResponse.from(updated));
-                })
-                .recover(err -> {
-                    logger.error("Failed to update order item ID: {}", req.getOrderItemId(), err);
-                    metrics.completeSpanError(tracingContext, "update", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<OrderItemResponse>error("Failed to update order item: " + err.getMessage()));
-                });
-    }
+        @Override
+        public Future<List<OrderItemResponseDeleteAt>> restore(Long orderId) {
+                var ctx = metrics.startSpan("OrderItemCommandService.restore",
+                                Attributes.builder().put("order.id", orderId).build());
 
-    @Override
-    public Future<ApiResponse<List<OrderItemResponseDeleteAt>>> trash(Integer orderId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.trash",
-                Attributes.builder()
-                        .put("order.id", (long) orderId)
-                        .build());
+                logger.info("Restoring order items for order ID: {}", orderId);
 
-        logger.info("Trashing order items for order ID: {}", orderId);
+                return queryRepository.findByTrashedId(orderId)
+                                .compose(trashed -> {
+                                        if (trashed == null) {
+                                                return Future.failedFuture(new BadRequestException("Order items not found or must be trashed first"));
+                                        }
+                                        return repo.restoreOrderItem(orderId);
+                                })
+                                .compose(r -> {
+                                        if (r == null || r.isEmpty()) {
+                                                return Future.failedFuture(new NotFoundException("Order items not found"));
+                                        }
+                                        return evict(orderId).map(v -> r);
+                                })
+                                .map(items -> items.stream().map(OrderItemResponseDeleteAt::from).toList())
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore", "Order items restored successfully"))
+                                .onFailure(e -> {
+                                        logger.error("Failed to restore order items", e);
+                                        metrics.completeSpanError(ctx, "restore", e.getMessage());
+                                });
+        }
 
-        return repo.trashOrderItem(orderId)
-                .compose(items -> invalidateCaches(orderId)
-                        .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                        .map(items))
-                .map(items -> {
-                    metrics.completeSpanSuccess(tracingContext, "trash", "Order items trashed successfully");
-                    List<OrderItemResponseDeleteAt> responses = items.stream()
-                            .map(OrderItemResponseDeleteAt::from)
-                            .toList();
-                    return ApiResponse.success("Order items trashed successfully", responses);
-                })
-                .recover(err -> {
-                    logger.error("Failed to trash order items for order ID: {}", orderId, err);
-                    metrics.completeSpanError(tracingContext, "trash", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<List<OrderItemResponseDeleteAt>>error("Failed to trash order items: " + err.getMessage()));
-                });
-    }
+        @Override
+        public Future<Void> deletePermanent(Long orderItemId) {
+                var ctx = metrics.startSpan("OrderItemCommandService.deletePermanent",
+                                Attributes.builder().put("order_item.id", orderItemId).build());
 
-    @Override
-    public Future<ApiResponse<List<OrderItemResponseDeleteAt>>> restore(Integer orderId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.restore",
-                Attributes.builder()
-                        .put("order.id", (long) orderId)
-                        .build());
+                return queryRepository.findByTrashedId(orderItemId)
+                                .compose(trashed -> {
+                                        if (trashed == null) {
+                                                return Future.<Void>failedFuture(
+                                                                new BadRequestException(
+                                                                                "Order item not found or must be trashed before permanent deletion"));
+                                        }
+                                        return repo.deleteOrderItemPermanently(orderItemId)
+                                                         .compose(v -> evictAll());
+                                })
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deletePermanent",
+                                                "Order item deleted permanently"))
+                                .onFailure(err -> metrics.completeSpanError(ctx, "deletePermanent", err.getMessage()));
+        }
 
-        logger.info("Restoring order items for order ID: {}", orderId);
+        @Override
+        public Future<Void> deleteByOrderPermanent(Long orderId) {
+                var ctx = metrics.startSpan("OrderItemCommandService.deleteByOrderPermanent",
+                                Attributes.builder().put("order.id", orderId).build());
 
-        return repo.restoreOrderItem(orderId)
-                .compose(items -> invalidateCaches(orderId)
-                        .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                        .map(items))
-                .map(items -> {
-                    metrics.completeSpanSuccess(tracingContext, "restore", "Order items restored successfully");
-                    List<OrderItemResponseDeleteAt> responses = items.stream()
-                            .map(OrderItemResponseDeleteAt::from)
-                            .toList();
-                    return ApiResponse.success("Order items restored successfully", responses);
-                })
-                .recover(err -> {
-                    logger.error("Failed to restore order items for order ID: {}", orderId, err);
-                    metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<List<OrderItemResponseDeleteAt>>error("Failed to restore order items: " + err.getMessage()));
-                });
-    }
+                return repo.deleteOrderItemByOrderPermanent(orderId)
+                                .compose(v -> evict(orderId))
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deleteByOrderPermanent",
+                                                "Order items deleted permanently"))
+                                .onFailure(err -> metrics.completeSpanError(ctx, "deleteByOrderPermanent",
+                                                err.getMessage()));
+        }
 
-    @Override
-    public Future<ApiResponse<Void>> deletePermanent(Integer orderItemId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.deletePermanent",
-                Attributes.builder()
-                        .put("order_item.id", (long) orderItemId)
-                        .build());
+        @Override
+        public Future<Void> restoreAll() {
+                var ctx = metrics.startSpan("OrderItemCommandService.restoreAll");
 
-        logger.info("Permanently deleting order item ID: {}", orderItemId);
+                return repo.restoreAllOrderItems()
+                                .compose(count -> {
+                                        if (count == 0) {
+                                                return Future.<Void>failedFuture(
+                                                                new NotFoundException("No trashed order items found"));
+                                        }
+                                        return evictAll();
+                                })
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore_all",
+                                                "All order items restored"))
+                                .onFailure(err -> metrics.completeSpanError(ctx, "restore_all", err.getMessage()));
+        }
 
-        return repo.deleteOrderItemPermanently(orderItemId)
-                .compose(v -> invalidateAllCaches()
-                        .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                        .mapEmpty())
-                .map(v -> {
-                    metrics.completeSpanSuccess(tracingContext, "deletePermanent", "Order item deleted permanently");
-                    return ApiResponse.<Void>success("Order item deleted permanently", null);
-                })
-                .recover(err -> {
-                    logger.error("Failed to permanently delete order item ID: {}", orderItemId, err);
-                    metrics.completeSpanError(tracingContext, "deletePermanent", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to delete order item: " + err.getMessage()));
-                });
-    }
+        @Override
+        public Future<Void> deleteAll() {
+                var ctx = metrics.startSpan("OrderItemCommandService.deleteAll");
 
-    @Override
-    public Future<ApiResponse<Void>> deleteByOrderPermanent(Integer orderId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.deleteByOrderPermanent",
-                Attributes.builder()
-                        .put("order.id", (long) orderId)
-                        .build());
+                return repo.deleteAllPermanentOrderItems()
+                                .compose(count -> {
+                                        if (count == 0) {
+                                                return Future.<Void>failedFuture(
+                                                                new NotFoundException("No trashed order items found"));
+                                        }
+                                        return evictAll();
+                                })
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "delete_all_permanent",
+                                                "All order items permanently deleted"))
+                                .onFailure(err -> metrics.completeSpanError(ctx, "delete_all_permanent",
+                                                err.getMessage()));
+        }
 
-        logger.info("Permanently deleting order items for order ID: {}", orderId);
+        @Override
+        public Future<BigDecimal> calculateTotalPrice(Long orderId) {
+                var ctx = metrics.startSpan("OrderItemCommandService.calculateTotalPrice",
+                                Attributes.builder().put("order.id", orderId).build());
 
-        return repo.deleteOrderItemByOrderPermanent(orderId)
-                .compose(v -> invalidateCaches(orderId)
-                        .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                        .mapEmpty())
-                .map(v -> {
-                    metrics.completeSpanSuccess(tracingContext, "deleteByOrderPermanent", "Order items deleted permanently");
-                    return ApiResponse.<Void>success("Order items deleted permanently", null);
-                })
-                .recover(err -> {
-                    logger.error("Failed to permanently delete order items for order ID: {}", orderId, err);
-                    metrics.completeSpanError(tracingContext, "deleteByOrderPermanent", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to delete order items: " + err.getMessage()));
-                });
-    }
-
-    @Override
-    public Future<ApiResponse<Void>> restoreAll() {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderItemCommandService.restoreAll");
-
-        logger.info("Restoring all trashed order items");
-
-        return repo.restoreAllOrderItems()
-                .compose(v -> invalidateAllCaches()
-                        .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                        .mapEmpty())
-                .map(v -> {
-                    metrics.completeSpanSuccess(tracingContext, "restoreAll", "All order items restored");
-                    return ApiResponse.<Void>success("All order items restored successfully", null);
-                })
-                .recover(err -> {
-                    logger.error("Failed to restore all order items", err);
-                    metrics.completeSpanError(tracingContext, "restoreAll", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to restore all order items: " + err.getMessage()));
-                });
-    }
-
-    @Override
-    public Future<ApiResponse<Void>> deleteAll() {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderItemCommandService.deleteAll");
-
-        logger.info("Permanently deleting all trashed order items");
-
-        return repo.deleteAllPermanentOrderItems()
-                .compose(v -> invalidateAllCaches()
-                        .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                        .mapEmpty())
-                .map(v -> {
-                    metrics.completeSpanSuccess(tracingContext, "deleteAll", "All trashed order items deleted permanently");
-                    return ApiResponse.<Void>success("All trashed order items deleted permanently", null);
-                })
-                .recover(err -> {
-                    logger.error("Failed to permanently delete all order items", err);
-                    metrics.completeSpanError(tracingContext, "deleteAll", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to delete all order items: " + err.getMessage()));
-                });
-    }
-
-    @Override
-    public Future<ApiResponse<Integer>> calculateTotalPrice(Integer orderId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "OrderItemCommandService.calculateTotalPrice",
-                Attributes.builder()
-                        .put("order.id", (long) orderId)
-                        .build());
-
-        logger.info("Calculating total price for order ID: {}", orderId);
-
-        return repo.calculateTotalPrice(orderId)
-                .map(totalPrice -> {
-                    metrics.completeSpanSuccess(tracingContext, "calculateTotalPrice", "Total price calculated successfully");
-                    return ApiResponse.success("Total price calculated successfully", totalPrice);
-                })
-                .recover(err -> {
-                    logger.error("Failed to calculate total price for order ID: {}", orderId, err);
-                    metrics.completeSpanError(tracingContext, "calculateTotalPrice", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Integer>error("Failed to calculate total price: " + err.getMessage()));
-                });
-    }
+                return repo.calculateTotalPrice(orderId)
+                                .map(val -> val != null ? BigDecimal.valueOf(val) : BigDecimal.ZERO)
+                                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "calculateTotalPrice",
+                                                "Total price calculated"))
+                                .onFailure(err -> metrics.completeSpanError(ctx, "calculateTotalPrice",
+                                                err.getMessage()));
+        }
 }

@@ -1,20 +1,18 @@
 package io.example.merchant_detail.repository.impl;
 
+import io.example.merchant_detail.domain.requests.CreateMerchantSocialRequest;
+import io.example.merchant_detail.domain.requests.UpdateMerchantSocialRequest;
 import io.example.merchant_detail.model.MerchantSocialMediaLink;
 import io.example.merchant_detail.repository.MerchantSocialLinkCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
-import pb.MerchantSocialLinkCommand.CreateMerchantSocialRequest;
-import pb.MerchantSocialLinkCommand.UpdateMerchantSocialRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantSocialLinkCommandRepositoryImpl implements MerchantSocialLinkCommandRepository {
   private final Pool pool;
-
-  public MerchantSocialLinkCommandRepositoryImpl(Pool pool) {
-    this.pool = pool;
-  }
 
   @Override
   public Future<MerchantSocialMediaLink> create(CreateMerchantSocialRequest req) {
@@ -48,25 +46,28 @@ public class MerchantSocialLinkCommandRepositoryImpl implements MerchantSocialLi
   }
 
   @Override
-  public Future<MerchantSocialMediaLink> trash(Long id) {
+  public Future<MerchantSocialMediaLink> trash(Integer id) {
     return pool
-        .preparedQuery("UPDATE merchant_social_media_links SET deleted_at = CURRENT_TIMESTAMP WHERE merchant_social_id = $1 AND deleted_at IS NULL RETURNING *")
+        .preparedQuery(
+            "UPDATE merchant_social_media_links SET deleted_at = CURRENT_TIMESTAMP WHERE merchant_social_id = $1 AND deleted_at IS NULL RETURNING *")
         .execute(Tuple.of(id))
         .map(rows -> rows.iterator().hasNext() ? MerchantSocialMediaLink.fromRow(rows.iterator().next()) : null);
   }
 
   @Override
-  public Future<MerchantSocialMediaLink> restore(Long id) {
+  public Future<MerchantSocialMediaLink> restore(Integer id) {
     return pool
-        .preparedQuery("UPDATE merchant_social_media_links SET deleted_at = NULL WHERE merchant_social_id = $1 AND deleted_at IS NOT NULL RETURNING *")
+        .preparedQuery(
+            "UPDATE merchant_social_media_links SET deleted_at = NULL WHERE merchant_social_id = $1 AND deleted_at IS NOT NULL RETURNING *")
         .execute(Tuple.of(id))
         .map(rows -> rows.iterator().hasNext() ? MerchantSocialMediaLink.fromRow(rows.iterator().next()) : null);
   }
 
   @Override
-  public Future<Void> deletePermanent(Long id) {
+  public Future<Void> deletePermanent(Integer id) {
     return pool
-        .preparedQuery("DELETE FROM merchant_social_media_links WHERE merchant_social_id = $1 AND deleted_at IS NOT NULL")
+        .preparedQuery(
+            "DELETE FROM merchant_social_media_links WHERE merchant_social_id = $1 AND deleted_at IS NOT NULL")
         .execute(Tuple.of(id))
         .mapEmpty();
   }

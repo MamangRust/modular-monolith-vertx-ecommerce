@@ -1,15 +1,24 @@
 package io.example.order.repository;
 
-import io.example.order.model.OrderItem;
-import io.vertx.core.Future;
 import java.util.List;
 
+import io.example.order.domain.requests.CreateOrderItemRecordRequest;
+import io.example.order.domain.requests.UpdateOrderItemRecordRequest;
+import io.example.order.model.OrderItem;
+import io.vertx.core.Future;
+
 public interface OrderItemCommandRepository {
-    Future<OrderItem> createOrderItem(Long orderId, Integer productId, Integer quantity, Integer price);
-    Future<OrderItem> updateOrderItem(Long orderItemId, Integer quantity, Integer price);
-    Future<List<OrderItem>> trashOrderItem(Integer orderId);
-    Future<List<OrderItem>> restoreOrderItem(Integer orderId);
-    Future<Void> deleteOrderItemPermanently(Integer orderId);
+    Future<OrderItem> createOrderItem(CreateOrderItemRecordRequest req);
+
+    Future<OrderItem> updateOrderItem(UpdateOrderItemRecordRequest req);
+
+    Future<List<OrderItem>> trashOrderItem(Long orderId);
+
+    Future<List<OrderItem>> restoreOrderItem(Long orderId);
+
+    Future<Void> deleteOrderItemPermanently(Long orderId);
+
     Future<Void> restoreAllOrderItems();
+
     Future<Void> deleteAllPermanentOrderItems();
 }

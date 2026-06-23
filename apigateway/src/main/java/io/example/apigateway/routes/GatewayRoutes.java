@@ -21,6 +21,9 @@ import io.example.apigateway.handler.ReviewDetailProxyHandler;
 import io.example.apigateway.handler.TransactionProxyHandler;
 import io.example.apigateway.middleware.JwtMiddleware;
 import io.example.apigateway.middleware.RoleMiddleware;
+import io.example.common.chaos.ChaosManager;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
@@ -50,7 +53,8 @@ public final class GatewayRoutes {
       ShippingAddressProxyHandler shippingAddress,
       ReviewProxyHandler review,
       ReviewDetailProxyHandler reviewDetail,
-      TransactionProxyHandler transaction) {
+      TransactionProxyHandler transaction,
+      ChaosManager chaosManager) {
 
     // 1. Global middleware (BodyParser is required for all JSON posts)
     router.route().handler(BodyHandler.create());
@@ -428,6 +432,33 @@ public final class GatewayRoutes {
     router.get("/transactions/stats/merchant/:merchantId/yearly-method-success").handler(transaction::getYearlyTransactionMethodSuccessByMerchant);
     router.get("/transactions/stats/merchant/:merchantId/monthly-method-failed").handler(transaction::getMonthlyTransactionMethodFailedByMerchant);
     router.get("/transactions/stats/merchant/:merchantId/yearly-method-failed").handler(transaction::getYearlyTransactionMethodFailedByMerchant);
+
+    // =========================================================================
+    // CHAOS CONTROL PLANE ROUTES
+    // =========================================================================
+    router.get("/api/chaos/policies").handler(ctx -> {
+      JsonArray policiesArr = new JsonArray();
+      chaosManager.getPolicies().forEach(policy -> {
+        policiesArr.add(JsonObject.mapFrom(policy));
+      });
+      ctx.response()
+          .putHeader("Content-Type", "application/json")
+          .end(new JsonObject().put("policies", policiesArr).encodePrettily());
+    });
+
+    router.post("/api/chaos/halt").handler(ctx -> {
+      chaosManager.halt();
+      ctx.response()
+          .putHeader("Content-Type", "application/json")
+          .end(new JsonObject().put("status", "success").put("message", "All chaos experiments halted").encodePrettily());
+    });
+
+    router.post("/api/chaos/policies/reload").handler(ctx -> {
+      chaosManager.loadConfig();
+      ctx.response()
+          .putHeader("Content-Type", "application/json")
+          .end(new JsonObject().put("status", "success").put("message", "Chaos policies reloaded").encodePrettily());
+    });
 
     return router;
   }

@@ -2,15 +2,12 @@ package io.example.product.repository.impl;
 
 import io.example.product.repository.CategoryQueryRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.category.CategoryCommon.FindByIdCategoryRequest;
-import pb.category.VertxCategoryQueryServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
     private final pb.category.VertxCategoryQueryServiceGrpcClient client;
-
-    public CategoryQueryRepositoryImpl(pb.category.VertxCategoryQueryServiceGrpcClient client) {
-        this.client = client;
-    }
 
     @Override
     public Future<Boolean> findById(Integer categoryId) {

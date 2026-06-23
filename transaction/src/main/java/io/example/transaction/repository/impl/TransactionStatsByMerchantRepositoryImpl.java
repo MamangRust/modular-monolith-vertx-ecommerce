@@ -8,19 +8,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.transaction.model.*;
+import io.example.transaction.domain.requests.FindMonthlyMerchantStatsRequest;
+import io.example.transaction.domain.requests.FindYearlyMerchantStatsRequest;
 import io.example.transaction.repository.TransactionStatsByMerchantRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class TransactionStatsByMerchantRepositoryImpl implements TransactionStatsByMerchantRepository {
     private final Pool client;
-
-    public TransactionStatsByMerchantRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     private Tuple getMonthlyTuple(int year, int month) {
         LocalDate start = LocalDate.of(year, month, 1);
@@ -32,8 +32,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
 
     @Override
     public Future<List<TransactionMonthlyAmountSuccess>> getMonthlyAmountTransactionSuccessByMerchant(
-            Integer merchantId, int year, int month) {
-        Tuple args = getMonthlyTuple(year, month).addInteger(merchantId);
+            FindMonthlyMerchantStatsRequest req) {
+        Tuple args = getMonthlyTuple(req.getYear(), req.getMonth()).addInteger(req.getMerchantId());
         return client
                 .preparedQuery(
                         """
@@ -57,8 +57,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     }
 
     @Override
-    public Future<List<TransactionYearlyAmountSuccess>> getYearlyAmountTransactionSuccessByMerchant(Integer merchantId,
-            int year) {
+    public Future<List<TransactionYearlyAmountSuccess>> getYearlyAmountTransactionSuccessByMerchant(
+            FindYearlyMerchantStatsRequest req) {
         return client
                 .preparedQuery(
                         """
@@ -74,14 +74,14 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
                                     UNION ALL SELECT ($1::integer - 1)::text, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM yearly_data WHERE year = $1::integer - 1)
                                 ) SELECT * FROM formatted_data ORDER BY year DESC;
                                 """)
-                .execute(Tuple.of(year, merchantId))
+                .execute(Tuple.of(req.getYear(), req.getMerchantId()))
                 .map(this::mapYearlySuccess);
     }
 
     @Override
-    public Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailedByMerchant(Integer merchantId,
-            int year, int month) {
-        Tuple args = getMonthlyTuple(year, month).addInteger(merchantId);
+    public Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailedByMerchant(
+            FindMonthlyMerchantStatsRequest req) {
+        Tuple args = getMonthlyTuple(req.getYear(), req.getMonth()).addInteger(req.getMerchantId());
         return client
                 .preparedQuery(
                         """
@@ -105,8 +105,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     }
 
     @Override
-    public Future<List<TransactionYearlyAmountFailed>> getYearlyAmountTransactionFailedByMerchant(Integer merchantId,
-            int year) {
+    public Future<List<TransactionYearlyAmountFailed>> getYearlyAmountTransactionFailedByMerchant(
+            FindYearlyMerchantStatsRequest req) {
         return client
                 .preparedQuery(
                         """
@@ -122,14 +122,14 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
                                     UNION ALL SELECT ($1::integer - 1)::text, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM yearly_data WHERE year = $1::integer - 1)
                                 ) SELECT * FROM formatted_data ORDER BY year DESC;
                                 """)
-                .execute(Tuple.of(year, merchantId))
+                .execute(Tuple.of(req.getYear(), req.getMerchantId()))
                 .map(this::mapYearlyFailed);
     }
 
     @Override
-    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantSuccess(Integer merchantId,
-            int year, int month) {
-        Tuple args = getMonthlyTuple(year, month).addInteger(merchantId);
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantSuccess(
+            FindMonthlyMerchantStatsRequest req) {
+        Tuple args = getMonthlyTuple(req.getYear(), req.getMonth()).addInteger(req.getMerchantId());
         return client
                 .preparedQuery(
                         """
@@ -157,9 +157,9 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     }
 
     @Override
-    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantFailed(Integer merchantId,
-            int year, int month) {
-        Tuple args = getMonthlyTuple(year, month).addInteger(merchantId);
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantFailed(
+            FindMonthlyMerchantStatsRequest req) {
+        Tuple args = getMonthlyTuple(req.getYear(), req.getMonth()).addInteger(req.getMerchantId());
         return client
                 .preparedQuery(
                         """
@@ -187,9 +187,9 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     }
 
     @Override
-    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantSuccess(Integer merchantId,
-            int year) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(year, 1, 1, 0, 0));
+    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantSuccess(
+            FindYearlyMerchantStatsRequest req) {
+        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
         return client
                 .preparedQuery(
                         """
@@ -209,14 +209,14 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
                                 LEFT JOIN yearly_transactions yt ON ys.year = yt.year AND pm.payment_method = yt.payment_method
                                 ORDER BY ys.year, pm.payment_method;
                                 """)
-                .execute(Tuple.of(refTs, merchantId))
+                .execute(Tuple.of(refTs, req.getMerchantId()))
                 .map(this::mapYearlyMethod);
     }
 
     @Override
-    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantFailed(Integer merchantId,
-            int year) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(year, 1, 1, 0, 0));
+    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantFailed(
+            FindYearlyMerchantStatsRequest req) {
+        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
         return client
                 .preparedQuery(
                         """
@@ -236,7 +236,7 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
                                 LEFT JOIN yearly_transactions yt ON ys.year = yt.year AND pm.payment_method = yt.payment_method
                                 ORDER BY ys.year, pm.payment_method;
                                 """)
-                .execute(Tuple.of(refTs, merchantId))
+                .execute(Tuple.of(refTs, req.getMerchantId()))
                 .map(this::mapYearlyMethod);
     }
 

@@ -355,6 +355,27 @@ services:
     networks:
       - app_network
 
+  db-migration:
+    build:
+      context: ./db-migration
+      dockerfile: Dockerfile
+    image: monolith-ecommerce-grpc-vertx/db-migration:latest
+    container_name: db-migration
+    env_file: ./docker.env
+    volumes:
+      - ./docker.env:/app/docker.env
+    networks:
+      - app_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=DRAGON
+      - DB_PASSWORD=DRAGON
+      - DB_NAME=PAYMENT_GATEWAY
+
   apigateway:
     build:
       context: ./apigateway
@@ -436,6 +457,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -462,6 +485,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -488,6 +513,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -539,6 +566,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -563,6 +592,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -587,6 +618,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -611,6 +644,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -637,6 +672,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -661,6 +698,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -685,6 +724,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -709,6 +750,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -733,6 +776,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -757,6 +802,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -781,6 +828,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -805,6 +854,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -829,6 +880,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -853,6 +906,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -877,6 +932,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:
@@ -901,6 +958,8 @@ services:
     depends_on:
       pgbouncer:
         condition: service_healthy
+      db-migration:
+        condition: service_completed_successfully
       kafka:
         condition: service_healthy
       otel-collector:

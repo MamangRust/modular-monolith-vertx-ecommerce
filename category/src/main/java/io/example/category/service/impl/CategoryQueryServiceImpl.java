@@ -2,16 +2,15 @@ package io.example.category.service.impl;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.model.ApiResponse;
-import io.example.common.model.ApiResponsePagination;
-import io.example.common.model.PagedResult;
-import io.example.common.model.PaginationMeta;
-import io.example.common.exception.NotFoundException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.example.common.domain.PagedResult;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
 import io.example.category.model.Category;
@@ -20,216 +19,131 @@ import io.example.category.model.CategoryResponseDeleteAt;
 import io.example.category.repository.CategoryQueryRepository;
 import io.example.category.service.CategoryQueryService;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.category.CategoryQuery;
+import lombok.RequiredArgsConstructor;
+import io.example.category.domain.requests.FindAllCategoriesRequest;
 
+@RequiredArgsConstructor
 public class CategoryQueryServiceImpl implements CategoryQueryService {
     private static final Logger logger = LoggerFactory.getLogger(CategoryQueryServiceImpl.class);
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     private final CategoryQueryRepository repo;
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final String CACHE_PREFIX = "category:";
-    private static final Duration CACHE_TTL_LIST = Duration.ofMinutes(10);
-    private static final Duration CACHE_TTL_ITEM = Duration.ofMinutes(60);
+    private static final Duration CACHE_TTL = Duration.ofMinutes(10);
 
-    public CategoryQueryServiceImpl(
-            CategoryQueryRepository repo,
-            RedisService redis,
-            TracingMetrics metrics) {
-        this.repo = repo;
-        this.redis = redis;
-        this.metrics = metrics;
+    private PagedResult<CategoryResponse> mapPagination(PagedResult<Category> res) {
+        List<CategoryResponse> data = res.getData().stream().map(CategoryResponse::from).toList();
+        return new PagedResult<>(data, res.getTotalRecords());
+    }
+
+    private PagedResult<CategoryResponseDeleteAt> mapPaginationDeleteAt(PagedResult<Category> res) {
+        List<CategoryResponseDeleteAt> data = res.getData().stream().map(CategoryResponseDeleteAt::from).toList();
+        return new PagedResult<>(data, res.getTotalRecords());
     }
 
     @Override
-    public Future<ApiResponsePagination<List<CategoryResponse>>> getAll(CategoryQuery.FindAllCategoryRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("CategoryQueryService.getAll");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+    public Future<PagedResult<CategoryResponse>> getAll(FindAllCategoriesRequest req) {
+        var ctx = metrics.startSpan("CategoryQueryService.getAll");
+        String cacheKey = CACHE_PREFIX + "list:all:" + (req.getSearch() != null ? req.getSearch() : "") + ":"
+                + req.getPage() + ":" + req.getPageSize();
 
-        int page = req.getPage() > 0 ? req.getPage() : 1;
-        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-        String keyword = (req.getSearch() != null && !req.getSearch().isEmpty()) ? req.getSearch() : "";
-
-        String cacheKey = String.format("%sall:p:%d:s:%d:k:%s", CACHE_PREFIX, page, pageSize, keyword);
-
-        return redis.getJson(cacheKey, ApiResponsePagination.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("category.cache_hit", true);
-                        metrics.completeSpanSuccess(tracingContext, "get_all", "Categories fetched from cache");
-                        @SuppressWarnings("unchecked")
-                        ApiResponsePagination<List<CategoryResponse>> typedCached = (ApiResponsePagination<List<CategoryResponse>>) cached;
-                        return Future.succeededFuture(typedCached);
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            PagedResult<Category> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<PagedResult<Category>>() {
+                                    });
+                            return Future.succeededFuture(mapPagination(typedCached));
+                        } catch (Exception e) {
+                            logger.warn("Failed to deserialize cached categories: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("category.cache_hit", false);
                     return repo.getCategories(req)
-                            .map(result -> mapCategoryPagination(result, page, pageSize))
-                            .compose(response -> redis.setJson(cacheKey, response, CACHE_TTL_LIST).map(response));
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
+                            .map(this::mapPagination);
                 })
-                .onSuccess(response -> {
-                    span.setAttribute("categories.count", (long) response.data().size());
-                    span.setAttribute("categories.total_records", (long) response.pagination().totalRecords());
-                    metrics.completeSpanSuccess(tracingContext, "get_all", "Categories fetched successfully");
-                })
-                .recover(throwable -> {
-                    logger.error("Failed to fetch categories", throwable);
-                    metrics.completeSpanError(tracingContext, "get_all", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponsePagination.<List<CategoryResponse>>error("Failed to fetch categories: " + throwable.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getAll", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getAll", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponsePagination<List<CategoryResponse>>> getActive(CategoryQuery.FindAllCategoryRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("CategoryQueryService.getActive");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+    public Future<PagedResult<CategoryResponse>> getActive(FindAllCategoriesRequest req) {
+        var ctx = metrics.startSpan("CategoryQueryService.getActive");
+        String cacheKey = CACHE_PREFIX + "list:active:" + (req.getSearch() != null ? req.getSearch() : "") + ":"
+                + req.getPage() + ":" + req.getPageSize();
 
-        int page = req.getPage() > 0 ? req.getPage() : 1;
-        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-        String keyword = (req.getSearch() != null && !req.getSearch().isEmpty()) ? req.getSearch() : "";
-
-        String cacheKey = String.format("%sactive:p:%d:s:%d:k:%s", CACHE_PREFIX, page, pageSize, keyword);
-
-        return redis.getJson(cacheKey, ApiResponsePagination.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("category.cache_hit", true);
-                        metrics.completeSpanSuccess(tracingContext, "get_active", "Active categories fetched from cache");
-                        @SuppressWarnings("unchecked")
-                        ApiResponsePagination<List<CategoryResponse>> typedCached = (ApiResponsePagination<List<CategoryResponse>>) cached;
-                        return Future.succeededFuture(typedCached);
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            PagedResult<Category> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<PagedResult<Category>>() {
+                                    });
+                            return Future.succeededFuture(mapPagination(typedCached));
+                        } catch (Exception e) {
+                            logger.warn("Failed to deserialize cached active categories: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("category.cache_hit", false);
                     return repo.getCategoriesActive(req)
-                            .map(result -> mapCategoryPagination(result, page, pageSize))
-                            .compose(response -> redis.setJson(cacheKey, response, CACHE_TTL_LIST).map(response));
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
+                            .map(this::mapPagination);
                 })
-                .onSuccess(response -> {
-                    span.setAttribute("categories.count", (long) response.data().size());
-                    span.setAttribute("categories.total_records", (long) response.pagination().totalRecords());
-                    metrics.completeSpanSuccess(tracingContext, "get_active", "Active categories fetched successfully");
-                })
-                .recover(throwable -> {
-                    logger.error("Failed to fetch active categories", throwable);
-                    metrics.completeSpanError(tracingContext, "get_active", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponsePagination.<List<CategoryResponse>>error("Failed to fetch active categories: " + throwable.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getActive", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getActive", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponsePagination<List<CategoryResponseDeleteAt>>> getTrashed(CategoryQuery.FindAllCategoryRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("CategoryQueryService.getTrashed");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+    public Future<PagedResult<CategoryResponseDeleteAt>> getTrashed(FindAllCategoriesRequest req) {
+        var ctx = metrics.startSpan("CategoryQueryService.getTrashed");
+        String cacheKey = CACHE_PREFIX + "list:trashed:" + (req.getSearch() != null ? req.getSearch() : "") + ":"
+                + req.getPage() + ":" + req.getPageSize();
 
-        int page = req.getPage() > 0 ? req.getPage() : 1;
-        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-        String keyword = (req.getSearch() != null && !req.getSearch().isEmpty()) ? req.getSearch() : "";
-
-        String cacheKey = String.format("%strashed:p:%d:s:%d:k:%s", CACHE_PREFIX, page, pageSize, keyword);
-
-        return redis.getJson(cacheKey, ApiResponsePagination.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("category.cache_hit", true);
-                        metrics.completeSpanSuccess(tracingContext, "get_trashed", "Trashed categories fetched from cache");
-                        @SuppressWarnings("unchecked")
-                        ApiResponsePagination<List<CategoryResponseDeleteAt>> typedCached = (ApiResponsePagination<List<CategoryResponseDeleteAt>>) cached;
-                        return Future.succeededFuture(typedCached);
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            PagedResult<Category> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<PagedResult<Category>>() {
+                                    });
+                            return Future.succeededFuture(mapPaginationDeleteAt(typedCached));
+                        } catch (Exception e) {
+                            logger.warn("Failed to deserialize cached trashed categories: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("category.cache_hit", false);
                     return repo.getCategoriesTrashed(req)
-                            .map(result -> mapCategoryPaginationDeleteAt(result, page, pageSize))
-                            .compose(response -> redis.setJson(cacheKey, response, CACHE_TTL_LIST).map(response));
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
+                            .map(this::mapPaginationDeleteAt);
                 })
-                .onSuccess(response -> {
-                    span.setAttribute("categories.count", (long) response.data().size());
-                    span.setAttribute("categories.total_records", (long) response.pagination().totalRecords());
-                    metrics.completeSpanSuccess(tracingContext, "get_trashed", "Trashed categories fetched successfully");
-                })
-                .recover(throwable -> {
-                    logger.error("Failed to fetch trashed categories", throwable);
-                    metrics.completeSpanError(tracingContext, "get_trashed", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponsePagination.<List<CategoryResponseDeleteAt>>error("Failed to fetch trashed categories: " + throwable.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getTrashed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getTrashed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<CategoryResponse>> getById(Long id) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "CategoryQueryService.getById",
+    public Future<CategoryResponse> getById(Long id) {
+        var ctx = metrics.startSpan("CategoryQueryService.getById",
                 Attributes.builder().put("category.id", id).build());
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+        String key = CACHE_PREFIX + id;
 
-        logger.info("Fetching category by id: {}", id);
-        String cacheKey = CACHE_PREFIX + "id:" + id;
-
-        return redis.getJson(cacheKey, Category.class)
+        return redis.getJson(key, Category.class)
                 .compose(cached -> {
                     if (cached != null) {
-                        logger.info("Category {} found in cache", id);
-                        span.setAttribute("category.cache_hit", true);
-                        metrics.completeSpanSuccess(tracingContext, "get_by_id", "Category fetched from cache");
-                        return Future.succeededFuture(ApiResponse.success("Category fetched successfully (from cache)", CategoryResponse.from(cached)));
-                    } else {
-                        span.setAttribute("category.cache_hit", false);
-                        return repo.getCategoryById(id)
-                                .compose(data -> {
-                                    if (data == null) {
-                                        return Future.failedFuture(new NotFoundException("Category not found"));
-                                    }
-                                    return redis.setJson(cacheKey, data, CACHE_TTL_ITEM).map(data);
-                                })
-                                .map(data -> {
-                                    metrics.completeSpanSuccess(tracingContext, "get_by_id", "Category fetched from database");
-                                    return ApiResponse.success("Category fetched successfully", CategoryResponse.from(data));
-                                });
+                        return Future.succeededFuture(CategoryResponse.from(cached));
                     }
+                    return repo.getCategoryById(id)
+                            .compose(db -> {
+                                if (db == null) {
+                                    return Future.<Category>failedFuture(new NotFoundException("Category not found"));
+                                }
+                                return redis.setJson(key, db, CACHE_TTL).<Category>map(v -> db);
+                            })
+                            .map(CategoryResponse::from);
                 })
-                .recover(err -> {
-                    logger.error("Failed to fetch category by id: {}", id, err);
-                    metrics.completeSpanError(tracingContext, "get_by_id", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.<CategoryResponse>error("Failed to fetch category: " + err.getMessage()));
-                });
-    }
-
-    private ApiResponsePagination<List<CategoryResponse>> mapCategoryPagination(
-            PagedResult<Category> result,
-            int page,
-            int pageSize) {
-        int totalRecords = result.getTotalRecords();
-        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
-        List<CategoryResponse> data = result.getData()
-                .stream()
-                .map(CategoryResponse::from)
-                .toList();
-
-        return new ApiResponsePagination<>(
-                "success",
-                "Categories found",
-                data,
-                new PaginationMeta(page, pageSize, totalPages, totalRecords));
-    }
-
-    private ApiResponsePagination<List<CategoryResponseDeleteAt>> mapCategoryPaginationDeleteAt(
-            PagedResult<Category> result,
-            int page,
-            int pageSize) {
-        int totalRecords = result.getTotalRecords();
-        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
-        List<CategoryResponseDeleteAt> data = result.getData()
-                .stream()
-                .map(CategoryResponseDeleteAt::from)
-                .toList();
-
-        return new ApiResponsePagination<>(
-                "success",
-                "Categories found",
-                data,
-                new PaginationMeta(page, pageSize, totalPages, totalRecords));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getById", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getById", e.getMessage()));
     }
 }

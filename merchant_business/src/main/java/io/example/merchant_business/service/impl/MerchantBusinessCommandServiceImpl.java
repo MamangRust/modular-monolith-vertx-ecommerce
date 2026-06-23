@@ -1,58 +1,53 @@
 package io.example.merchant_business.service.impl;
 
-import java.util.Objects;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.exception.NotFoundException;
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.merchant_business.model.MerchantBusiness;
+import io.example.merchant_business.domain.requests.CreateMerchantBusinessRequest;
+import io.example.merchant_business.domain.requests.UpdateMerchantBusinessRequest;
 import io.example.merchant_business.model.MerchantBusinessResponse;
 import io.example.merchant_business.model.MerchantBusinessResponseDeleteAt;
 import io.example.merchant_business.repository.MerchantBusinessCommandRepository;
+import io.example.merchant_business.repository.MerchantBusinessQueryRepository;
 import io.example.merchant_business.repository.MerchantQueryRepository;
 import io.example.merchant_business.service.MerchantBusinessCommandService;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.merchant_business.MerchantBusinessCommand.CreateMerchantBusinessRequest;
-import pb.merchant_business.MerchantBusinessCommand.UpdateMerchantBusinessRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantBusinessCommandServiceImpl implements MerchantBusinessCommandService {
-  private static final Logger logger = LoggerFactory.getLogger(MerchantBusinessCommandServiceImpl.class);
+  private static final Logger log = LoggerFactory.getLogger(MerchantBusinessCommandServiceImpl.class);
 
   private final MerchantBusinessCommandRepository repo;
+  private final MerchantBusinessQueryRepository queryRepository;
   private final MerchantQueryRepository merchantRepo;
   private final RedisService redis;
   private final TracingMetrics metrics;
 
   private static final String CACHE_PREFIX = "merchant_business:";
 
-  public MerchantBusinessCommandServiceImpl(
-      MerchantBusinessCommandRepository repo,
-      MerchantQueryRepository merchantRepo,
-      RedisService redis,
-      TracingMetrics metrics) {
-    this.repo = repo;
-    this.merchantRepo = merchantRepo;
-    this.redis = redis;
-    this.metrics = metrics;
+  private Future<Void> evict(Long id) {
+    return redis.delete(CACHE_PREFIX + "id:" + id).mapEmpty();
+  }
+
+  private Future<Void> evictAll() {
+    return redis.deleteByPattern(CACHE_PREFIX + "list:*").mapEmpty();
   }
 
   @Override
-  public Future<ApiResponse<MerchantBusinessResponse>> create(CreateMerchantBusinessRequest req) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantBusinessCommandService.create",
+  public Future<MerchantBusinessResponse> create(CreateMerchantBusinessRequest req) {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.create",
         Attributes.builder()
             .put("business.merchant_id", (long) req.getMerchantId())
             .put("business.business_type", req.getBusinessType())
             .build());
-    Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
 
-    logger.info("Creating business info for merchant: {}", req.getMerchantId());
+    log.info("Creating business info for merchant: {}", req.getMerchantId());
 
     return merchantRepo.findById(req.getMerchantId())
         .compose(exists -> {
@@ -61,191 +56,136 @@ public class MerchantBusinessCommandServiceImpl implements MerchantBusinessComma
           }
           return repo.create(req);
         })
-        .map(mbi -> {
-          if (mbi == null) {
-            throw new RuntimeException("Failed to create business info");
-          }
-          span.setAttribute("business.id", mbi.getMerchantBusinessInfoId());
-          metrics.completeSpanSuccess(tracingContext, "create", "Business info created successfully");
-          return ApiResponse.success("Business info created successfully", MerchantBusinessResponse.from(mbi));
-        })
-        .recover(err -> {
-          logger.error("Failed to create business info", err);
-          metrics.completeSpanError(tracingContext, "create", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .map(MerchantBusinessResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "create", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "create", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantBusinessResponse>> update(UpdateMerchantBusinessRequest req) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantBusinessCommandService.update",
+  public Future<MerchantBusinessResponse> update(UpdateMerchantBusinessRequest req) {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.update",
         Attributes.builder()
             .put("business.id", (long) req.getMerchantBusinessInfoId())
             .put("business.business_type", req.getBusinessType())
             .build());
-    Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
 
-    logger.info("Updating business info: {}", req.getMerchantBusinessInfoId());
-
-    String cacheKey = CACHE_PREFIX + "id:" + req.getMerchantBusinessInfoId();
+    log.info("Updating business info: {}", req.getMerchantBusinessInfoId());
 
     return repo.update(req)
         .compose(mbi -> {
           if (mbi == null) {
-            return Future.failedFuture(new NotFoundException("Business info not found with ID: " + req.getMerchantBusinessInfoId()));
+            return Future.failedFuture(
+                new NotFoundException("Business info not found with ID: " + req.getMerchantBusinessInfoId()));
           }
-          return redis.delete(cacheKey).map(mbi);
+          return evict((long) req.getMerchantBusinessInfoId()).map(v -> mbi);
         })
-        .map(mbi -> {
-          metrics.completeSpanSuccess(tracingContext, "update", "Business info updated successfully");
-          return ApiResponse.success("Business info updated successfully", MerchantBusinessResponse.from(mbi));
-        })
-        .recover(err -> {
-          logger.error("Failed to update business info", err);
-          metrics.completeSpanError(tracingContext, "update", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .map(MerchantBusinessResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "update", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "update", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantBusinessResponseDeleteAt>> trash(Long id) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantBusinessCommandService.trash",
-        Attributes.builder()
-            .put("business.id", id)
-            .build());
+  public Future<MerchantBusinessResponseDeleteAt> trash(Long id) {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.trash",
+        Attributes.builder().put("business.id", id).build());
 
-    logger.info("Trashing business info: {}", id);
-
-    String cacheKey = CACHE_PREFIX + "id:" + id;
+    log.info("Trashing business info: {}", id);
 
     return repo.trash(id)
         .compose(mbi -> {
           if (mbi == null) {
             return Future.failedFuture(new NotFoundException("Business info not found with ID: " + id));
           }
-          return redis.delete(cacheKey).map(mbi);
+          return evict(id).map(v -> mbi);
         })
-        .map(mbi -> {
-          metrics.completeSpanSuccess(tracingContext, "trash", "Business info trashed successfully");
-          return ApiResponse.success("Business info trashed successfully", MerchantBusinessResponseDeleteAt.from(mbi));
-        })
-        .recover(err -> {
-          logger.error("Failed to trash business info", err);
-          metrics.completeSpanError(tracingContext, "trash", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .map(MerchantBusinessResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trash", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "trash", e.getMessage()));
+  }
+
+  @Override
+  public Future<MerchantBusinessResponseDeleteAt> restore(Long id) {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.restore",
+        Attributes.builder().put("business.id", id).build());
+
+    log.info("Restoring business info: {}", id);
+
+    return queryRepository.findByTrashedId(id)
+        .compose(trashed -> {
+          if (trashed == null) {
+            return Future.failedFuture(new BadRequestException("Business info not found or must be trashed first"));
           }
-          return Future.failedFuture(err);
+          return repo.restore(id);
+        })
+        .compose(r -> {
+          if (r == null) {
+            return Future.failedFuture(new NotFoundException("Business info not found"));
+          }
+          return evict(id).map(v -> r);
+        })
+        .map(MerchantBusinessResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore", "Success"))
+        .onFailure(e -> {
+          log.error("Failed to restore business info", e);
+          metrics.completeSpanError(ctx, "restore", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<MerchantBusinessResponseDeleteAt>> restore(Long id) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantBusinessCommandService.restore",
-        Attributes.builder()
-            .put("business.id", id)
-            .build());
+  public Future<Void> deletePermanent(Long id) {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.deletePermanent",
+        Attributes.builder().put("business.id", id).build());
 
-    logger.info("Restoring business info: {}", id);
+    log.info("Permanently deleting business info: {}", id);
 
-    String cacheKey = CACHE_PREFIX + "id:" + id;
-
-    return repo.restore(id)
-        .compose(mbi -> {
-          if (mbi == null) {
-            return Future.failedFuture(new NotFoundException("Business info not found with ID: " + id));
+    return queryRepository.findByTrashedId(id)
+        .compose(existing -> {
+          if (existing == null) {
+            return Future.failedFuture(new BadRequestException("Business info not found or must be trashed first"));
           }
-          return redis.delete(cacheKey).map(mbi);
+          return repo.deletePermanent(id);
         })
-        .map(mbi -> {
-          metrics.completeSpanSuccess(tracingContext, "restore", "Business info restored successfully");
-          return ApiResponse.success("Business info restored successfully", MerchantBusinessResponseDeleteAt.from(mbi));
-        })
-        .recover(err -> {
-          logger.error("Failed to restore business info", err);
-          metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
-  }
-
-  @Override
-  public Future<ApiResponse<Boolean>> deletePermanent(Long id) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantBusinessCommandService.deletePermanent",
-        Attributes.builder()
-            .put("business.id", id)
-            .build());
-
-    logger.info("Permanently deleting business info: {}", id);
-
-    String cacheKey = CACHE_PREFIX + "id:" + id;
-
-    return repo.deletePermanent(id)
         .compose(success -> {
           if (!success) {
-            return Future.failedFuture(new NotFoundException("Business info not found with ID: " + id));
+            return Future.failedFuture(new BadRequestException("Business info not found or must be trashed first"));
           }
-          return redis.delete(cacheKey).map(true);
+          return evict(id);
         })
-        .map(success -> {
-          metrics.completeSpanSuccess(tracingContext, "delete_permanent", "Business info permanently deleted");
-          return ApiResponse.success("Business info permanently deleted", true);
-        })
-        .recover(err -> {
-          logger.error("Failed to permanently delete business info", err);
-          metrics.completeSpanError(tracingContext, "delete_permanent", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deletePermanent", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "deletePermanent", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Integer>> restoreAll() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("MerchantBusinessCommandService.restoreAll");
+  public Future<Void> restoreAll() {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.restoreAll");
 
-    logger.info("Restoring all trashed business info");
+    log.info("Restoring all business info");
 
     return repo.restoreAll()
-        .map(count -> {
-          metrics.completeSpanSuccess(tracingContext, "restore_all", "All business info restored");
-          return ApiResponse.success("All business info restored successfully", count);
+        .compose(count -> {
+          if (count == 0) {
+            return Future.failedFuture(new NotFoundException("No trashed business info found"));
+          }
+          return evictAll();
         })
-        .recover(err -> {
-          logger.error("Failed to restore all business info", err);
-          metrics.completeSpanError(tracingContext, "restore_all", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restoreAll", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "restoreAll", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Integer>> deleteAllPermanent() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("MerchantBusinessCommandService.deleteAllPermanent");
+  public Future<Void> deleteAllPermanent() {
+    var ctx = metrics.startSpan("MerchantBusinessCommandService.deleteAllPermanent");
 
-    logger.info("Permanently deleting all trashed business info");
+    log.info("Permanently deleting all business info");
 
     return repo.deleteAllPermanent()
-        .map(count -> {
-          metrics.completeSpanSuccess(tracingContext, "delete_all_permanent", "All trashed business info deleted");
-          return ApiResponse.success("All trashed business info deleted permanently", count);
+        .compose(count -> {
+          if (count == 0) {
+            return Future.failedFuture(new NotFoundException("No trashed business info found"));
+          }
+          return evictAll();
         })
-        .recover(err -> {
-          logger.error("Failed to delete all trashed business info", err);
-          metrics.completeSpanError(tracingContext, "delete_all_permanent", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deleteAllPermanent", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "deleteAllPermanent", e.getMessage()));
   }
 }

@@ -1,25 +1,23 @@
 package io.example.user.service;
 
-import io.example.common.model.ApiResponse;
+import io.example.user.domain.requests.CreateUserRequest;
+import io.example.user.domain.requests.UpdateUserRequest;
 import io.example.user.model.UserResponse;
 import io.example.user.model.UserResponseDeleteAt;
 import io.vertx.core.Future;
-import pb.user.UserCommand.CreateUserRequest;
-import pb.user.UserCommand.UpdateUserRequest;
-import pb.user.UserCommon.FindByIdUserRequest;
 
 public interface UserCommandService {
-  Future<ApiResponse<UserResponse>> createUser(CreateUserRequest req);
+  Future<UserResponse> createUser(CreateUserRequest req);
 
-  Future<ApiResponse<UserResponse>> updateUser(UpdateUserRequest req);
+  Future<UserResponse> updateUser(UpdateUserRequest req);
 
-  Future<ApiResponse<UserResponseDeleteAt>> trashUser(FindByIdUserRequest req);
+  Future<UserResponseDeleteAt> trashUser(Long req);
 
-  Future<ApiResponse<UserResponseDeleteAt>> restoreUser(FindByIdUserRequest req);
+  Future<UserResponseDeleteAt> restoreUser(Long req);
 
-  Future<ApiResponse<Void>> deletePermanent(FindByIdUserRequest req);
+  Future<Void> deletePermanent(Long req);
 
-  Future<ApiResponse<Void>> restoreAllUsers();
+  Future<Void> restoreAllUsers();
 
-  Future<ApiResponse<Void>> deleteAllPermanentUsers();
+  Future<Void> deleteAllPermanentUsers();
 }

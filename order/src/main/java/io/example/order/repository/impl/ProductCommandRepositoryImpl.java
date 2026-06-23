@@ -2,15 +2,13 @@ package io.example.order.repository.impl;
 
 import io.example.order.repository.ProductCommandRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.product.ProductCommand.UpdateProductCountStockRequest;
 import pb.product.VertxProductCommandServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class ProductCommandRepositoryImpl implements ProductCommandRepository {
     private final VertxProductCommandServiceGrpcClient client;
-
-    public ProductCommandRepositoryImpl(VertxProductCommandServiceGrpcClient client) {
-        this.client = client;
-    }
 
     @Override
     public Future<Boolean> updateProductCountStock(Integer productId, Integer stock) {

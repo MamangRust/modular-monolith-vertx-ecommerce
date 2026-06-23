@@ -1,16 +1,23 @@
 package io.example.merchant_policy.service;
 
-import io.example.common.domain.ApiResponse;
+import io.example.merchant_policy.domain.requests.CreateMerchantPoliciesRequest;
+import io.example.merchant_policy.domain.requests.UpdateMerchantPoliciesRequest;
 import io.example.merchant_policy.model.MerchantPoliciesResponse;
 import io.example.merchant_policy.model.MerchantPoliciesResponseDeleteAt;
 import io.vertx.core.Future;
 
 public interface MerchantPoliciesCommandService {
-  Future<ApiResponse<MerchantPoliciesResponse>> create(pb.merchant_policy.MerchantPolicyCommand.CreateMerchantPoliciesRequest req);
-  Future<ApiResponse<MerchantPoliciesResponse>> update(pb.merchant_policy.MerchantPolicyCommand.UpdateMerchantPoliciesRequest req);
-  Future<ApiResponse<MerchantPoliciesResponseDeleteAt>> trash(Long id);
-  Future<ApiResponse<MerchantPoliciesResponseDeleteAt>> restore(Long id);
-  Future<ApiResponse<Boolean>> deletePermanent(Long id);
-  Future<ApiResponse<Integer>> restoreAll();
-  Future<ApiResponse<Integer>> deleteAllPermanent();
+  Future<MerchantPoliciesResponse> create(CreateMerchantPoliciesRequest req);
+
+  Future<MerchantPoliciesResponse> update(UpdateMerchantPoliciesRequest req);
+
+  Future<MerchantPoliciesResponseDeleteAt> trash(Long id);
+
+  Future<MerchantPoliciesResponseDeleteAt> restore(Long id);
+
+  Future<Void> deletePermanent(Long id);
+
+  Future<Void> restoreAll();
+
+  Future<Void> deleteAllPermanent();
 }

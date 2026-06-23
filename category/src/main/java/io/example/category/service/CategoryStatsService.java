@@ -1,16 +1,21 @@
 package io.example.category.service;
 
 import java.util.List;
-import io.example.common.model.ApiResponse;
 import io.example.category.model.CategoriesMonthPrice;
 import io.example.category.model.CategoriesMonthlyTotalPrice;
 import io.example.category.model.CategoriesYearPrice;
 import io.example.category.model.CategoriesYearlyTotalPrice;
+import io.example.category.domain.requests.FindYearMonthTotalPricesRequest;
+import io.example.category.domain.requests.FindYearTotalPricesRequest;
+import io.example.category.domain.requests.FindYearCategoryRequest;
 import io.vertx.core.Future;
 
 public interface CategoryStatsService {
-    Future<ApiResponse<List<CategoriesMonthlyTotalPrice>>> getMonthlyTotalPrice(int year, int month);
-    Future<ApiResponse<List<CategoriesYearlyTotalPrice>>> getYearlyTotalPrice(int year);
-    Future<ApiResponse<List<CategoriesMonthPrice>>> getMonthlyCategory(int year);
-    Future<ApiResponse<List<CategoriesYearPrice>>> getYearlyCategory(int year);
+    Future<List<CategoriesMonthlyTotalPrice>> getMonthlyTotalPrice(FindYearMonthTotalPricesRequest req);
+
+    Future<List<CategoriesYearlyTotalPrice>> getYearlyTotalPrice(FindYearTotalPricesRequest req);
+
+    Future<List<CategoriesMonthPrice>> getMonthlyCategory(FindYearCategoryRequest req);
+
+    Future<List<CategoriesYearPrice>> getYearlyCategory(FindYearCategoryRequest req);
 }

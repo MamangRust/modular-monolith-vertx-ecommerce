@@ -16,9 +16,12 @@ import io.example.merchant_policy.model.MerchantPolicy;
 import io.example.merchant_policy.model.MerchantPolicyRelation;
 import io.example.merchant_policy.repository.MerchantPoliciesQueryRepository;
 import io.example.merchant_policy.service.MerchantPoliciesQueryService;
+import io.example.merchant_policy.domain.requests.FindAllMerchantPoliciesRequest;
 import io.vertx.core.Future;
 import io.vertx.core.json.Json;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQueryService {
   private static final Logger log = LoggerFactory.getLogger(MerchantPoliciesQueryServiceImpl.class);
 
@@ -27,17 +30,11 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
   private final TracingMetrics tracingMetrics;
   private final ObjectMapper mapper = new ObjectMapper();
 
-  public MerchantPoliciesQueryServiceImpl(
-      MerchantPoliciesQueryRepository repository,
-      RedisService redisService,
-      TracingMetrics tracingMetrics) {
-    this.repository = repository;
-    this.redisService = redisService;
-    this.tracingMetrics = tracingMetrics;
-  }
-
   @Override
-  public Future<PagedResult<MerchantPoliciesRelationResponse>> getMerchantPolicies(String search, int page, int pageSize) {
+  public Future<PagedResult<MerchantPoliciesRelationResponse>> getMerchantPolicies(FindAllMerchantPoliciesRequest req) {
+    String search = req.getSearch();
+    int page = req.getPage();
+    int pageSize = req.getPageSize();
     var ctx = tracingMetrics.startSpan("MerchantPoliciesQueryService.getMerchantPolicies");
     log.info("Fetching all policies | search={}, page={}, pageSize={}", search, page, pageSize);
 
@@ -49,14 +46,14 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
             try {
               PagedResult<MerchantPolicyRelation> result = mapper.readValue(
                   cached,
-                  new TypeReference<PagedResult<MerchantPolicyRelation>>() {}
-              );
+                  new TypeReference<PagedResult<MerchantPolicyRelation>>() {
+                  });
               return Future.succeededFuture(result);
             } catch (Exception e) {
               log.warn("Failed to parse merchant policies cache: {}", e.getMessage());
             }
           }
-          return repository.getMerchantPolicies(search, page, pageSize)
+          return repository.getMerchantPolicies(req)
               .compose(result -> redisService.set(cacheKey, Json.encode(result), Duration.ofMinutes(10))
                   .onFailure(err -> log.warn("Failed to set merchant policies cache: {}", err.getMessage()))
                   .map(v -> result));
@@ -76,7 +73,11 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
   }
 
   @Override
-  public Future<PagedResult<MerchantPoliciesRelationResponseDeleteAt>> getMerchantPoliciesActive(String search, int page, int pageSize) {
+  public Future<PagedResult<MerchantPoliciesRelationResponseDeleteAt>> getMerchantPoliciesActive(
+      FindAllMerchantPoliciesRequest req) {
+    String search = req.getSearch();
+    int page = req.getPage();
+    int pageSize = req.getPageSize();
     var ctx = tracingMetrics.startSpan("MerchantPoliciesQueryService.getMerchantPoliciesActive");
     log.info("Fetching active policies | search={}, page={}, pageSize={}", search, page, pageSize);
 
@@ -88,14 +89,14 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
             try {
               PagedResult<MerchantPolicyRelation> result = mapper.readValue(
                   cached,
-                  new TypeReference<PagedResult<MerchantPolicyRelation>>() {}
-              );
+                  new TypeReference<PagedResult<MerchantPolicyRelation>>() {
+                  });
               return Future.succeededFuture(result);
             } catch (Exception e) {
               log.warn("Failed to parse active merchant policies cache: {}", e.getMessage());
             }
           }
-          return repository.getMerchantPoliciesActive(search, page, pageSize)
+          return repository.getMerchantPoliciesActive(req)
               .compose(result -> redisService.set(cacheKey, Json.encode(result), Duration.ofMinutes(10))
                   .onFailure(err -> log.warn("Failed to set active merchant policies cache: {}", err.getMessage()))
                   .map(v -> result));
@@ -115,7 +116,11 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
   }
 
   @Override
-  public Future<PagedResult<MerchantPoliciesRelationResponseDeleteAt>> getMerchantPoliciesTrashed(String search, int page, int pageSize) {
+  public Future<PagedResult<MerchantPoliciesRelationResponseDeleteAt>> getMerchantPoliciesTrashed(
+      FindAllMerchantPoliciesRequest req) {
+    String search = req.getSearch();
+    int page = req.getPage();
+    int pageSize = req.getPageSize();
     var ctx = tracingMetrics.startSpan("MerchantPoliciesQueryService.getMerchantPoliciesTrashed");
     log.info("Fetching trashed policies | search={}, page={}, pageSize={}", search, page, pageSize);
 
@@ -127,14 +132,14 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
             try {
               PagedResult<MerchantPolicyRelation> result = mapper.readValue(
                   cached,
-                  new TypeReference<PagedResult<MerchantPolicyRelation>>() {}
-              );
+                  new TypeReference<PagedResult<MerchantPolicyRelation>>() {
+                  });
               return Future.succeededFuture(result);
             } catch (Exception e) {
               log.warn("Failed to parse trashed merchant policies cache: {}", e.getMessage());
             }
           }
-          return repository.getMerchantPoliciesTrashed(search, page, pageSize)
+          return repository.getMerchantPoliciesTrashed(req)
               .compose(result -> redisService.set(cacheKey, Json.encode(result), Duration.ofMinutes(10))
                   .onFailure(err -> log.warn("Failed to set trashed merchant policies cache: {}", err.getMessage()))
                   .map(v -> result));
@@ -169,7 +174,7 @@ public class MerchantPoliciesQueryServiceImpl implements MerchantPoliciesQuerySe
               log.warn("Cache parse error: {}", e.getMessage());
             }
           }
-          return repository.getMerchantPolicy(id)
+          return repository.getMerchantPolicy(id != null ? id : null)
               .compose(data -> {
                 if (data == null) {
                   return Future.failedFuture("Policy not found");

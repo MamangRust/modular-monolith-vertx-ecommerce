@@ -9,19 +9,16 @@ import java.util.List;
 import io.example.order.model.OrderItem;
 import io.example.order.repository.OrderItemQueryRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
 import pb.order_item.OrderItemCommand.CalculateTotalPriceRequest;
 import pb.order_item.VertxOrderItemQueryServiceGrpcClient;
 import pb.order_item.VertxOrderItemCommandServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
     private final VertxOrderItemQueryServiceGrpcClient queryClient;
     private final VertxOrderItemCommandServiceGrpcClient commandClient;
-
-    public OrderItemQueryRepositoryImpl(VertxOrderItemQueryServiceGrpcClient queryClient, VertxOrderItemCommandServiceGrpcClient commandClient) {
-        this.queryClient = queryClient;
-        this.commandClient = commandClient;
-    }
 
     @Override
     public Future<List<OrderItem>> getOrderItemsByOrder(Integer orderId) {
@@ -60,7 +57,8 @@ public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
     }
 
     private Timestamp parseTimestamp(String ts) {
-        if (ts == null || ts.isBlank()) return null;
+        if (ts == null || ts.isBlank())
+            return null;
         try {
             return Timestamp.from(Instant.parse(ts));
         } catch (Exception e) {

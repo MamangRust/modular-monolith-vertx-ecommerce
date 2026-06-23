@@ -3,6 +3,7 @@ package io.example.banner.handler;
 import com.google.protobuf.Empty;
 import io.example.banner.service.BannerCommandService;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.banner.BannerCommon.ApiResponseBanner;
 import pb.banner.BannerCommon.ApiResponseBannerAll;
 import pb.banner.BannerCommon.ApiResponseBannerDelete;
@@ -11,16 +12,22 @@ import pb.banner.BannerCommon.FindByIdBannerRequest;
 import pb.banner.BannerCommand.CreateBannerRequest;
 import pb.banner.BannerCommand.UpdateBannerRequest;
 
+@RequiredArgsConstructor
 public class BannerCommandHandler implements pb.banner.VertxBannerCommandServiceGrpcServer.BannerCommandServiceApi {
     private final BannerCommandService service;
 
-    public BannerCommandHandler(BannerCommandService service) {
-        this.service = service;
-    }
-
     @Override
     public Future<ApiResponseBanner> create(CreateBannerRequest req) {
-        return service.createBanner(req)
+        var reqDomain = io.example.banner.domain.requests.CreateBannerRequest.builder()
+                .name(req.getName())
+                .startDate(req.getStartDate())
+                .endDate(req.getEndDate())
+                .startTime(req.getStartTime())
+                .endTime(req.getEndTime())
+                .isActive(req.getIsActive())
+                .build();
+
+        return service.createBanner(reqDomain)
                 .map(resp -> {
                     ApiResponseBanner.Builder builder = ApiResponseBanner.newBuilder()
                             .setStatus(resp.status())
@@ -34,7 +41,28 @@ public class BannerCommandHandler implements pb.banner.VertxBannerCommandService
 
     @Override
     public Future<ApiResponseBanner> update(UpdateBannerRequest req) {
-        return service.updateBanner(req)
+        if (req.getBannerId() == 0L) {
+            return Future.failedFuture(new io.grpc.StatusException(
+                    io.grpc.Status.INVALID_ARGUMENT.withDescription("Banner ID is required")));
+        }
+        if (req.getName() == null || req.getName().trim().isEmpty()) {
+            return Future.failedFuture(new io.grpc.StatusException(
+                    io.grpc.Status.INVALID_ARGUMENT.withDescription("Banner name is required")));
+        }
+
+        long bannerId = req.getBannerId();
+
+        var reqDomain = io.example.banner.domain.requests.UpdateBannerRequest.builder()
+                .bannerId(bannerId)
+                .name(req.getName())
+                .startDate(req.getStartDate())
+                .endDate(req.getEndDate())
+                .startTime(req.getStartTime())
+                .endTime(req.getEndTime())
+                .isActive(req.getIsActive())
+                .build();
+
+        return service.updateBanner(reqDomain)
                 .map(resp -> {
                     ApiResponseBanner.Builder builder = ApiResponseBanner.newBuilder()
                             .setStatus(resp.status())

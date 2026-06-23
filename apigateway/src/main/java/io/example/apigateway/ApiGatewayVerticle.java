@@ -221,6 +221,11 @@ public class ApiGatewayVerticle extends AbstractVerticle {
     // 7. Configure web routers & launch web interface
     Router baseRouter = Router.router(vertx);
 
+    // Initialize and hook up Chaos Engineering HTTP Middleware
+    io.example.common.chaos.ChaosManager chaosManager = new io.example.common.chaos.ChaosManager();
+    chaosManager.startWatcher(vertx);
+    baseRouter.route().handler(new io.example.common.chaos.ChaosHttpMiddleware(chaosManager));
+
     Router registeredRouter = GatewayRoutes.register(
         baseRouter,
         jwtAuth,
@@ -242,7 +247,8 @@ public class ApiGatewayVerticle extends AbstractVerticle {
         shippingAddressHandler,
         reviewHandler,
         reviewDetailHandler,
-        transactionHandler);
+        transactionHandler,
+        chaosManager);
 
     int port = rawConfig.getInteger("http_port", 8080);
     String envHttpPort = System.getenv("HTTP_PORT");

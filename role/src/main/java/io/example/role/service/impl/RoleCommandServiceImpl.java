@@ -1,278 +1,145 @@
 package io.example.role.service.impl;
 
-import java.util.Objects;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import io.example.common.exception.NotFoundException;
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.role.model.Role;
+import io.example.role.domain.requests.CreateRoleRequest;
+import io.example.role.domain.requests.UpdateRoleRequest;
 import io.example.role.model.RoleResponse;
 import io.example.role.model.RoleResponseDeleteAt;
 import io.example.role.repository.RoleCommandRepository;
+import io.example.role.repository.RoleQueryRepository;
 import io.example.role.service.RoleCommandService;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.RoleCommand.CreateRoleRequest;
-import pb.RoleCommand.UpdateRoleRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class RoleCommandServiceImpl implements RoleCommandService {
-  private static final Logger logger = LoggerFactory.getLogger(RoleCommandServiceImpl.class);
-
-  private final RoleCommandRepository repo;
+  private final RoleCommandRepository repository;
+  private final RoleQueryRepository queryRepository;
   private final RedisService redis;
   private final TracingMetrics metrics;
 
-  private static final String CACHE_PREFIX = "role:";
-
-  public RoleCommandServiceImpl(
-      RoleCommandRepository repo,
-      RedisService redis,
-      TracingMetrics metrics) {
-    this.repo = repo;
-    this.redis = redis;
-    this.metrics = metrics;
+  private Future<Void> evict(Long id) {
+    return redis.delete("role:" + id).<Void>mapEmpty();
   }
 
   @Override
-  public Future<ApiResponse<RoleResponse>> createRole(CreateRoleRequest req) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "RoleCommandService.createRole",
-        Attributes.builder()
-            .put("role.name", Objects.requireNonNull(req.getName()))
-            .build());
-    Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+  public Future<RoleResponse> createRole(CreateRoleRequest req) {
+    var ctx = metrics.startSpan("RoleCommandService.createRole",
+        Attributes.builder().put("role.name", req.getName()).build());
 
-    logger.info("Creating role: {}", req.getName());
-
-    return repo.createRole(req.getName())
-        .map(created -> {
-          span.setAttribute("role.id", (long) created.getRoleId());
-          metrics.completeSpanSuccess(tracingContext, "create", "Role created successfully");
-          return ApiResponse.success(
-              "Role created successfully",
-              RoleResponse.from(created));
-        })
-        .recover(err -> {
-          logger.error("Failed to create role: {}", req.getName(), err);
-          metrics.completeSpanError(tracingContext, "create", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<RoleResponse>error("Failed to create role: " + err.getMessage()));
-        });
+    return repository.createRole(req)
+        .map(RoleResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createRole", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "createRole", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<RoleResponse>> updateRole(UpdateRoleRequest req) {
-    Integer roleId = req.getId();
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "RoleCommandService.updateRole",
-        Attributes.builder()
-            .put("role.id", (long) roleId)
-            .put("role.name", Objects.requireNonNull(req.getName()))
-            .build());
+  public Future<RoleResponse> updateRole(UpdateRoleRequest req) {
+    var ctx = metrics.startSpan("RoleCommandService.updateRole",
+        Attributes.builder().put("role.id", (long) req.getRoleId()).build());
+    Long id = (long) req.getRoleId();
 
-    logger.info("Updating role: {}, name: {}", roleId, req.getName());
-
-    return repo.updateRole(roleId, req.getName())
-        .compose((Role updatedRole) -> {
-          if (updatedRole == null) {
+    return repository.updateRole(req)
+        .compose(role -> {
+          if (role == null) {
             return Future.failedFuture(new NotFoundException("Role not found"));
           }
-          String cacheKey = CACHE_PREFIX + "id:" + roleId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Role {} cache invalidated", roleId);
-                }
-              })
-              .onFailure(err -> logger.warn("Failed to invalidate cache for role {}: {}", roleId, err.getMessage()))
-              .map(updatedRole);
+          return evict(id).map(role);
         })
-        .map((Role updatedRole) -> {
-          metrics.completeSpanSuccess(tracingContext, "update", "Role updated successfully");
-          return ApiResponse.success(
-              "Role updated successfully",
-              RoleResponse.from(updatedRole));
-        })
-        .recover(err -> {
-          logger.error("Failed to update role: {}", roleId, err);
-          metrics.completeSpanError(tracingContext, "update", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<RoleResponse>error("Failed to update role: " + err.getMessage()));
-        });
+        .map(RoleResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "updateRole", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "updateRole", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<RoleResponseDeleteAt>> trashRole(Integer roleId) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "RoleCommandService.trashed",
-        Attributes.builder()
-            .put("role.id", (long) roleId)
-            .build());
+  public Future<RoleResponseDeleteAt> trashRole(Long roleId) {
+    var ctx = metrics.startSpan("RoleCommandService.trashRole",
+        Attributes.builder().put("role.id", (long) roleId).build());
 
-    logger.info("Trashing role: {}", roleId);
-
-    return repo.trashed(roleId)
+    return repository.trashed(roleId)
         .compose(role -> {
           if (role == null) {
-            return Future.failedFuture(new NotFoundException("Role not found with id: " + roleId));
+            return Future.failedFuture(new NotFoundException("Role not found"));
           }
-          String cacheKey = CACHE_PREFIX + "id:" + roleId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Role {} cache invalidated on trash", roleId);
-                }
-              })
-              .onFailure(
-                  err -> logger.warn("Failed to invalidate cache for trashed role {}: {}", roleId, err.getMessage()))
-              .map(role);
+          return evict(roleId).map(role);
         })
-        .map(role -> {
-          metrics.completeSpanSuccess(tracingContext, "trashed", "Role trashed successfully");
-          return ApiResponse.success("Role trashed successfully", RoleResponseDeleteAt.from(role));
-        })
-        .recover(err -> {
-          logger.error("Failed to trash role: {}", roleId, err);
-          metrics.completeSpanError(tracingContext, "trashed", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<RoleResponseDeleteAt>error("Failed to trash role: " + err.getMessage()));
-        });
+        .map(RoleResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trashRole", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "trashRole", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<RoleResponseDeleteAt>> restoreRole(Integer roleId) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "RoleCommandService.restore",
-        Attributes.builder()
-            .put("role.id", (long) roleId)
-            .build());
+  public Future<RoleResponseDeleteAt> restoreRole(Long roleId) {
+    var ctx = metrics.startSpan("RoleCommandService.restoreRole",
+        Attributes.builder().put("role.id", (long) roleId).build());
 
-    logger.info("Restoring role: {}", roleId);
-
-    return repo.restore(roleId)
-        .compose(role -> {
-          if (role == null) {
-            return Future.failedFuture(new NotFoundException("Role not found with id: " + roleId));
+    return queryRepository.findByTrashedId(roleId)
+        .compose(trashed -> {
+          if (trashed == null) {
+            return Future.failedFuture(new BadRequestException("Role not found or must be trashed first"));
           }
-          String cacheKey = CACHE_PREFIX + "id:" + roleId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Role {} cache invalidated on restore", roleId);
-                }
-              })
-              .onFailure(
-                  err -> logger.warn("Failed to invalidate cache for restored role {}: {}", roleId, err.getMessage()))
-              .map(role);
+          return repository.restore(roleId);
         })
-        .map(role -> {
-          metrics.completeSpanSuccess(tracingContext, "restore", "Role restored successfully");
-          return ApiResponse.success(
-              "Role restored successfully",
-              RoleResponseDeleteAt.from(role));
+        .compose(r -> {
+          if (r == null) {
+            return Future.failedFuture(new NotFoundException("Role not found"));
+          }
+          return evict(roleId).map(v -> r);
         })
-        .recover(err -> {
-          logger.error("Failed to restore role: {}", roleId, err);
-          metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<RoleResponseDeleteAt>error("Failed to restore role: " + err.getMessage()));
-        });
+        .map(RoleResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restoreRole", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "restoreRole", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Void>> deletePermanent(Integer roleId) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "RoleCommandService.deletePermanent",
-        Attributes.builder()
-            .put("role.id", (long) roleId)
-            .build());
+  public Future<Void> deletePermanent(Long roleId) {
+    var ctx = metrics.startSpan("RoleCommandService.deletePermanent",
+        Attributes.builder().put("role.id", (long) roleId).build());
 
-    logger.info("Permanently deleting role: {}", roleId);
-
-    return repo.deletePermanent(roleId)
-        .compose(v -> {
-          String cacheKey = CACHE_PREFIX + "id:" + roleId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Role {} cache invalidated on permanent delete", roleId);
-                }
-              })
-              .onFailure(
-                  err -> logger.warn("Failed to invalidate cache for deleted role {}: {}", roleId, err.getMessage()))
-              .map(v);
+    return queryRepository.findByTrashedId(roleId)
+        .compose(trashed -> {
+          if (trashed == null) {
+            return Future.<Void>failedFuture(
+                new BadRequestException("Role not found or must be trashed before permanent deletion"));
+          }
+          return repository.deletePermanent(roleId)
+              .compose(v -> evict(roleId));
         })
-        .map(v -> {
-          logger.info("Role deleted successfully: {}", roleId);
-          metrics.completeSpanSuccess(tracingContext, "deletePermanent", "Role deleted permanently");
-          return ApiResponse.<Void>success("success", null);
-        })
-        .recover(throwable -> {
-          logger.error("Failed to deletePermanent role: {}", roleId, throwable);
-          metrics.completeSpanError(tracingContext, "deletePermanent", throwable.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<Void>error("Failed to delete role: " + throwable.getMessage()));
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deletePermanent", "Role deleted permanently"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "deletePermanent", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Void>> restoreAllRoles() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("RoleService.restoreAll");
+  public Future<Void> restoreAllRoles() {
+    var ctx = metrics.startSpan("RoleService.restoreAll");
 
-    logger.info("Attempting to restore all trashed roles");
-
-    return repo.restoreAllRoles()
-        .compose(v -> {
-          logger.info("All roles restored successfully");
-          metrics.completeSpanSuccess(
-              tracingContext,
-              "restore_all",
-              "All roles restored");
-          return Future.succeededFuture(
-              ApiResponse.<Void>success("All roles restored successfully"));
+    return repository.restoreAllRoles()
+        .compose(count -> {
+          if (count == 0) {
+            return Future.<Void>failedFuture(new NotFoundException("No trashed roles found"));
+          }
+          return redis.delete("role:list:*").<Void>mapEmpty();
         })
-        .recover(throwable -> {
-          logger.error("Failed to restore all roles", throwable);
-          metrics.completeSpanError(
-              tracingContext,
-              "restore_all",
-              throwable.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<Void>error(
-                  "Failed to restore all roles: " + throwable.getMessage()));
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore_all", "Success"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "restore_all", err.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Void>> deleteAllPermanentRoles() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("RoleService.deleteAllPermanent");
+  public Future<Void> deleteAllPermanentRoles() {
+    var ctx = metrics.startSpan("RoleService.deleteAllPermanent");
 
-    logger.info("Attempting to permanently delete all trashed roles");
-
-    return repo.deleteAllPermanentRoles()
-        .compose(v -> {
-          logger.info("All trashed roles permanently deleted");
-          metrics.completeSpanSuccess(
-              tracingContext,
-              "deleteAllPermanent",
-              "All roles permanently deleted");
-          return Future.succeededFuture(
-              ApiResponse.<Void>success("All roles permanently deleted"));
+    return repository.deleteAllPermanentRoles()
+        .compose(count -> {
+          if (count == 0) {
+            return Future.<Void>failedFuture(new NotFoundException("No trashed roles found"));
+          }
+          return redis.delete("role:list:*").<Void>mapEmpty();
         })
-        .recover(throwable -> {
-          logger.error("Failed to permanently delete all roles", throwable);
-          metrics.completeSpanError(
-              tracingContext,
-              "deleteAllPermanent",
-              throwable.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.<Void>error(
-                  "Failed to permanently delete all roles: " + throwable.getMessage()));
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "delete_all_permanent", "Success"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "delete_all_permanent", err.getMessage()));
   }
 }

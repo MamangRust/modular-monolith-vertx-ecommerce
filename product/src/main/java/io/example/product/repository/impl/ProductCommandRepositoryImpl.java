@@ -1,21 +1,19 @@
 package io.example.product.repository.impl;
 
-import io.example.product.model.CreateProductRequest;
+import io.example.product.domain.requests.CreateProductRequest;
+import io.example.product.domain.requests.UpdateProductRequest;
 import io.example.product.model.Product;
-import io.example.product.model.UpdateProductRequest;
 import io.example.product.repository.ProductCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ProductCommandRepositoryImpl implements ProductCommandRepository {
     private final Pool client;
-
-    public ProductCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<Product> create(CreateProductRequest req) {
@@ -131,7 +129,7 @@ public class ProductCommandRepositoryImpl implements ProductCommandRepository {
     }
 
     @Override
-    public Future<Product> updateProductCountStock(Long productId, Integer countInStock) {
+    public Future<Product> updateProductCountStock(Integer productId, Integer countInStock) {
         return client
                 .preparedQuery("""
                         UPDATE products
@@ -226,7 +224,7 @@ public class ProductCommandRepositoryImpl implements ProductCommandRepository {
     }
 
     @Override
-    public Future<Void> deletePermanent(Long productId) {
+    public Future<Boolean> deletePermanent(Long productId) {
         return client
                 .preparedQuery("""
                         DELETE FROM products
@@ -235,11 +233,11 @@ public class ProductCommandRepositoryImpl implements ProductCommandRepository {
                             AND deleted_at IS NOT NULL
                         """)
                 .execute(Tuple.of(productId))
-                .mapEmpty();
+                .map(rows -> rows.rowCount() > 0);
     }
 
     @Override
-    public Future<Void> restoreAll() {
+    public Future<Integer> restoreAll() {
         return client
                 .preparedQuery("""
                         UPDATE products
@@ -250,15 +248,15 @@ public class ProductCommandRepositoryImpl implements ProductCommandRepository {
                             deleted_at IS NOT NULL
                         """)
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     @Override
-    public Future<Void> deleteAll() {
+    public Future<Integer> deleteAll() {
         return client
                 .preparedQuery("DELETE FROM products WHERE deleted_at IS NOT NULL")
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     private Product mapSingleOrNull(RowSet<Row> rows) {

@@ -2,15 +2,13 @@ package io.example.merchant.repository.impl;
 
 import io.example.merchant.repository.UserQueryRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.user.UserCommon.FindByIdUserRequest;
 import pb.user.VertxUserQueryServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class UserQueryRepositoryImpl implements UserQueryRepository {
   private final VertxUserQueryServiceGrpcClient client;
-
-  public UserQueryRepositoryImpl(VertxUserQueryServiceGrpcClient client) {
-    this.client = client;
-  }
 
   @Override
   public Future<pb.user.UserCommon.UserResponse> getUserById(Integer userId) {

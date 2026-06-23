@@ -2,289 +2,284 @@ package io.example.order.service.impl;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.model.ApiResponse;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
+import io.example.order.domain.requests.*;
 import io.example.order.model.OrderMonthly;
 import io.example.order.model.OrderMonthlyTotalRevenue;
 import io.example.order.model.OrderYearly;
 import io.example.order.model.OrderYearlyTotalRevenue;
 import io.example.order.repository.OrderStatsRepository;
 import io.example.order.service.OrderStatsService;
-import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class OrderStatsServiceImpl implements OrderStatsService {
-    private static final Logger logger = LoggerFactory.getLogger(OrderStatsServiceImpl.class);
-
-    private final OrderStatsRepository repo;
+    private static final Logger log = LoggerFactory.getLogger(OrderStatsServiceImpl.class);
+    private static final ObjectMapper mapper = new ObjectMapper();
+    private final OrderStatsRepository repository;
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final String CACHE_PREFIX = "order:stats:";
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
 
-    public OrderStatsServiceImpl(OrderStatsRepository repo, RedisService redis, TracingMetrics metrics) {
-        this.repo = repo;
-        this.redis = redis;
-        this.metrics = metrics;
-    }
-
     @Override
-    public Future<ApiResponse<List<OrderMonthlyTotalRevenue>>> getMonthlyTotalRevenue(int year, int month) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getMonthlyTotalRevenue");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
+    public Future<List<OrderMonthlyTotalRevenue>> getMonthlyTotalRevenue(MonthTotalRevenue req) {
+        var ctx = metrics.startSpan("OrderStatsService.getMonthlyTotalRevenue");
+        String cacheKey = String.format("%smonthly_revenue:y:%d:m:%d", CACHE_PREFIX, req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("%smonthly_revenue:y:%d:m:%d", CACHE_PREFIX, year, month);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderMonthlyTotalRevenue> typed = (List<OrderMonthlyTotalRevenue>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Monthly total revenue fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderMonthlyTotalRevenue> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderMonthlyTotalRevenue>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly total revenue: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getMonthlyTotalRevenue(year, month)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Monthly total revenue fetched successfully", list)));
+                    return repository.getMonthlyTotalRevenue(req.getYear(), req.getMonth())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_monthly_total_revenue", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_monthly_total_revenue", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyTotalRevenue", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyTotalRevenue", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderYearlyTotalRevenue>>> getYearlyTotalRevenue(int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getYearlyTotalRevenue");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-
+    public Future<List<OrderYearlyTotalRevenue>> getYearlyTotalRevenue(int year) {
+        var ctx = metrics.startSpan("OrderStatsService.getYearlyTotalRevenue");
         String cacheKey = String.format("%syearly_revenue:y:%d", CACHE_PREFIX, year);
 
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderYearlyTotalRevenue> typed = (List<OrderYearlyTotalRevenue>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Yearly total revenue fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderYearlyTotalRevenue> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderYearlyTotalRevenue>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly total revenue: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getYearlyTotalRevenue(year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Yearly total revenue fetched successfully", list)));
+                    return repository.getYearlyTotalRevenue(year)
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_yearly_total_revenue", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_yearly_total_revenue", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyTotalRevenue", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyTotalRevenue", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderMonthlyTotalRevenue>>> getMonthlyTotalRevenueById(Long orderId, int year, int month) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getMonthlyTotalRevenueById");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-        span.setAttribute("order.id", orderId);
+    public Future<List<OrderMonthlyTotalRevenue>> getMonthlyTotalRevenueById(MonthTotalRevenueByIdRequest req) {
+        var ctx = metrics.startSpan("OrderStatsService.getMonthlyTotalRevenueById");
+        String cacheKey = String.format("%smonthly_revenue_id:%d:y:%d:m:%d", CACHE_PREFIX, req.getOrderId(),
+                req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("%smonthly_revenue_id:%d:y:%d:m:%d", CACHE_PREFIX, orderId, year, month);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderMonthlyTotalRevenue> typed = (List<OrderMonthlyTotalRevenue>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Monthly total revenue by ID fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderMonthlyTotalRevenue> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderMonthlyTotalRevenue>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly total revenue by id: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getMonthlyTotalRevenueById(orderId, year, month)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Monthly total revenue by ID fetched successfully", list)));
+                    return repository.getMonthlyTotalRevenueById(req.getOrderId(), req.getYear(), req.getMonth())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_monthly_total_revenue_by_id", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_monthly_total_revenue_by_id", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyTotalRevenueById", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyTotalRevenueById", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderYearlyTotalRevenue>>> getYearlyTotalRevenueById(Long orderId, int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getYearlyTotalRevenueById");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-        span.setAttribute("order.id", orderId);
+    public Future<List<OrderYearlyTotalRevenue>> getYearlyTotalRevenueById(YearTotalRevenueByIdRequest req) {
+        var ctx = metrics.startSpan("OrderStatsService.getYearlyTotalRevenueById");
+        String cacheKey = String.format("%syearly_revenue_id:%d:y:%d", CACHE_PREFIX, req.getOrderId(), req.getYear());
 
-        String cacheKey = String.format("%syearly_revenue_id:%d:y:%d", CACHE_PREFIX, orderId, year);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderYearlyTotalRevenue> typed = (List<OrderYearlyTotalRevenue>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Yearly total revenue by ID fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderYearlyTotalRevenue> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderYearlyTotalRevenue>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly total revenue by id: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getYearlyTotalRevenueById(orderId, year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Yearly total revenue by ID fetched successfully", list)));
+                    return repository.getYearlyTotalRevenueById(req.getOrderId(), req.getYear())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_yearly_total_revenue_by_id", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_yearly_total_revenue_by_id", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyTotalRevenueById", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyTotalRevenueById", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderMonthlyTotalRevenue>>> getMonthlyTotalRevenueByMerchant(Integer merchantId, int year, int month) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getMonthlyTotalRevenueByMerchant");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-        span.setAttribute("merchant.id", (long) merchantId);
+    public Future<List<OrderMonthlyTotalRevenue>> getMonthlyTotalRevenueByMerchant(
+            MonthTotalRevenueMerchantRequest req) {
+        var ctx = metrics.startSpan("OrderStatsService.getMonthlyTotalRevenueByMerchant");
+        String cacheKey = String.format("%smonthly_revenue_merchant:%d:y:%d:m:%d", CACHE_PREFIX, req.getMerchantId(),
+                req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("%smonthly_revenue_merchant:%d:y:%d:m:%d", CACHE_PREFIX, merchantId, year, month);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderMonthlyTotalRevenue> typed = (List<OrderMonthlyTotalRevenue>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Monthly total revenue by merchant fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderMonthlyTotalRevenue> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderMonthlyTotalRevenue>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly total revenue by merchant: {}",
+                                    e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getMonthlyTotalRevenueByMerchant(merchantId, year, month)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Monthly total revenue by merchant fetched successfully", list)));
+                    return repository
+                            .getMonthlyTotalRevenueByMerchant(req.getMerchantId().intValue(), req.getYear(),
+                                    req.getMonth())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_monthly_total_revenue_by_merchant", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_monthly_total_revenue_by_merchant", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyTotalRevenueByMerchant", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyTotalRevenueByMerchant", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderYearlyTotalRevenue>>> getYearlyTotalRevenueByMerchant(Integer merchantId, int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getYearlyTotalRevenueByMerchant");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-        span.setAttribute("merchant.id", (long) merchantId);
+    public Future<List<OrderYearlyTotalRevenue>> getYearlyTotalRevenueByMerchant(YearTotalRevenueMerchantRequest req) {
+        var ctx = metrics.startSpan("OrderStatsService.getYearlyTotalRevenueByMerchant");
+        String cacheKey = String.format("%syearly_revenue_merchant:%d:y:%d", CACHE_PREFIX, req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("%syearly_revenue_merchant:%d:y:%d", CACHE_PREFIX, merchantId, year);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderYearlyTotalRevenue> typed = (List<OrderYearlyTotalRevenue>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Yearly total revenue by merchant fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderYearlyTotalRevenue> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderYearlyTotalRevenue>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly total revenue by merchant: {}",
+                                    e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getYearlyTotalRevenueByMerchant(merchantId, year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Yearly total revenue by merchant fetched successfully", list)));
+                    return repository.getYearlyTotalRevenueByMerchant(req.getMerchantId().intValue(), req.getYear())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_yearly_total_revenue_by_merchant", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_yearly_total_revenue_by_merchant", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyTotalRevenueByMerchant", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyTotalRevenueByMerchant", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderMonthly>>> getMonthlyOrder(int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getMonthlyOrder");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-
+    public Future<List<OrderMonthly>> getMonthlyOrder(int year) {
+        var ctx = metrics.startSpan("OrderStatsService.getMonthlyOrder");
         String cacheKey = String.format("%smonthly_order:y:%d", CACHE_PREFIX, year);
 
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderMonthly> typed = (List<OrderMonthly>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Monthly order stats fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderMonthly> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderMonthly>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly order stats: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getMonthlyOrder(year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Monthly order stats fetched successfully", list)));
+                    return repository.getMonthlyOrder(year)
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_monthly_order", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_monthly_order", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyOrder", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyOrder", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderYearly>>> getYearlyOrder(int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getYearlyOrder");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-
+    public Future<List<OrderYearly>> getYearlyOrder(int year) {
+        var ctx = metrics.startSpan("OrderStatsService.getYearlyOrder");
         String cacheKey = String.format("%syearly_order:y:%d", CACHE_PREFIX, year);
 
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderYearly> typed = (List<OrderYearly>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Yearly order stats fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderYearly> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderYearly>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly order stats: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getYearlyOrder(year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Yearly order stats fetched successfully", list)));
+                    return repository.getYearlyOrder(year)
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_yearly_order", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_yearly_order", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyOrder", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyOrder", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderMonthly>>> getMonthlyOrderByMerchant(Integer merchantId, int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getMonthlyOrderByMerchant");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-        span.setAttribute("merchant.id", (long) merchantId);
+    public Future<List<OrderMonthly>> getMonthlyOrderByMerchant(MonthOrderMerchantRequest req) {
+        var ctx = metrics.startSpan("OrderStatsService.getMonthlyOrderByMerchant");
+        String cacheKey = String.format("%smonthly_order_merchant:%d:y:%d", CACHE_PREFIX, req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("%smonthly_order_merchant:%d:y:%d", CACHE_PREFIX, merchantId, year);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderMonthly> typed = (List<OrderMonthly>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Monthly order stats by merchant fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderMonthly> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderMonthly>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly order stats by merchant: {}",
+                                    e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getMonthlyOrderByMerchant(merchantId, year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Monthly order stats by merchant fetched successfully", list)));
+                    return repository.getMonthlyOrderByMerchant(req.getMerchantId().intValue(), req.getYear())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_monthly_order_by_merchant", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_monthly_order_by_merchant", err));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyOrderByMerchant", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyOrderByMerchant", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<OrderYearly>>> getYearlyOrderByMerchant(Integer merchantId, int year) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("OrderStatsService.getYearlyOrderByMerchant");
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-        span.setAttribute("merchant.id", (long) merchantId);
+    public Future<List<OrderYearly>> getYearlyOrderByMerchant(YearOrderMerchantRequest req) {
+        var ctx = metrics.startSpan("OrderStatsService.getYearlyOrderByMerchant");
+        String cacheKey = String.format("%syearly_order_merchant:%d:y:%d", CACHE_PREFIX, req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("%syearly_order_merchant:%d:y:%d", CACHE_PREFIX, merchantId, year);
-
-        return redis.getJson(cacheKey, List.class)
-                .compose(cached -> {
-                    if (cached != null) {
-                        span.setAttribute("stats.cache_hit", true);
-                        @SuppressWarnings("unchecked")
-                        List<OrderYearly> typed = (List<OrderYearly>) cached;
-                        return Future.succeededFuture(ApiResponse.success("Yearly order stats by merchant fetched from cache", typed));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<OrderYearly> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<OrderYearly>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly order stats by merchant: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("stats.cache_hit", false);
-                    return repo.getYearlyOrderByMerchant(merchantId, year)
-                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL)
-                                    .map(v -> ApiResponse.success("Yearly order stats by merchant fetched successfully", list)));
+                    return repository.getYearlyOrderByMerchant(req.getMerchantId().intValue(), req.getYear())
+                            .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
-                .onSuccess(res -> metrics.completeSpanSuccess(tracingContext, "get_yearly_order_by_merchant", "Success"))
-                .recover(err -> handleFailure(tracingContext, "get_yearly_order_by_merchant", err));
-    }
-
-    private <T> Future<ApiResponse<T>> handleFailure(TracingMetrics.TracingContext tracingContext, String name, Throwable err) {
-        logger.error("Failed to execute statistical query: {}", name, err);
-        metrics.completeSpanError(tracingContext, name, err.getMessage());
-        return Future.succeededFuture(ApiResponse.error("Failed to generate report stats: " + err.getMessage()));
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyOrderByMerchant", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyOrderByMerchant", e.getMessage()));
     }
 }

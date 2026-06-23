@@ -3,6 +3,7 @@ package io.example.role.repository.impl;
 import java.util.ArrayList;
 import java.util.List;
 import io.example.common.domain.PagedResult;
+import io.example.role.domain.requests.FindAllRolesRequest;
 import io.example.role.model.Role;
 import io.example.role.repository.RoleQueryRepository;
 import io.vertx.core.Future;
@@ -10,60 +11,62 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class RoleQueryRepositoryImpl implements RoleQueryRepository {
   private final Pool client;
 
-  public RoleQueryRepositoryImpl(Pool client) {
-    this.client = client;
-  }
-
   @Override
-  public Future<PagedResult<Role>> getRoles(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
+  public Future<PagedResult<Role>> getRoles(FindAllRolesRequest request) {
+    int offset = (request.getPage() > 0 ? request.getPage() - 1 : 0) * request.getPageSize();
     return client
         .preparedQuery("""
-            SELECT role_id, role_name, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
+            SELECT *, COUNT(*) OVER() AS total_count
             FROM roles
-            WHERE ($1::TEXT IS NULL OR role_name ILIKE '%' || $1 || '%')
-            ORDER BY created_at ASC LIMIT $2 OFFSET $3
+            WHERE deleted_at IS NULL
+              AND ($1::TEXT IS NULL OR role_name ILIKE '%' || $1 || '%')
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3
             """)
-        .execute(Tuple.of(normalizeSearch(search), pageSize, offset))
+        .execute(Tuple.of(normalizeSearch(request.getSearch()), request.getPageSize(), offset))
         .map(this::mapPagedRoles);
   }
 
   @Override
-  public Future<PagedResult<Role>> getActiveRoles(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
+  public Future<PagedResult<Role>> getActiveRoles(FindAllRolesRequest request) {
+    int offset = (request.getPage() > 0 ? request.getPage() - 1 : 0) * request.getPageSize();
     return client
         .preparedQuery("""
-            SELECT role_id, role_name, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
+            SELECT *, COUNT(*) OVER() AS total_count
             FROM roles
-            WHERE deleted_at IS NULL AND ($1::TEXT IS NULL OR role_name ILIKE '%' || $1 || '%')
-            ORDER BY created_at ASC LIMIT $2 OFFSET $3
+            WHERE deleted_at IS NULL
+              AND ($1::TEXT IS NULL OR role_name ILIKE '%' || $1 || '%')
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3
             """)
-        .execute(Tuple.of(normalizeSearch(search), pageSize, offset))
+        .execute(Tuple.of(normalizeSearch(request.getSearch()), request.getPageSize(), offset))
         .map(this::mapPagedRoles);
   }
 
   @Override
-  public Future<PagedResult<Role>> getTrashedRoles(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
+  public Future<PagedResult<Role>> getTrashedRoles(FindAllRolesRequest request) {
+    int offset = (request.getPage() > 0 ? request.getPage() - 1 : 0) * request.getPageSize();
     return client
         .preparedQuery("""
-            SELECT role_id, role_name, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
+            SELECT *, COUNT(*) OVER() AS total_count
             FROM roles
-            WHERE deleted_at IS NOT NULL AND ($1::TEXT IS NULL OR role_name ILIKE '%' || $1 || '%')
-            ORDER BY deleted_at DESC LIMIT $2 OFFSET $3
+            WHERE deleted_at IS NOT NULL
+              AND ($1::TEXT IS NULL OR role_name ILIKE '%' || $1 || '%')
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3
             """)
-        .execute(Tuple.of(normalizeSearch(search), pageSize, offset))
+        .execute(Tuple.of(normalizeSearch(request.getSearch()), request.getPageSize(), offset))
         .map(this::mapPagedRoles);
   }
 
   @Override
-  public Future<Role> getRoleById(Integer roleId) {
+  public Future<Role> getRoleById(Long roleId) {
     return client
-        .preparedQuery("SELECT role_id, role_name, created_at, updated_at, deleted_at FROM roles WHERE role_id = $1 AND deleted_at IS NULL")
+        .preparedQuery(
+            "SELECT role_id, role_name, created_at, updated_at, deleted_at FROM roles WHERE role_id = $1 AND deleted_at IS NULL")
         .execute(Tuple.of(roleId))
         .map(this::mapSingleOrNull);
   }
@@ -71,13 +74,14 @@ public class RoleQueryRepositoryImpl implements RoleQueryRepository {
   @Override
   public Future<Role> getRoleByName(String roleName) {
     return client
-        .preparedQuery("SELECT role_id, role_name, created_at, updated_at, deleted_at FROM roles WHERE role_name = $1 AND deleted_at IS NULL")
+        .preparedQuery(
+            "SELECT role_id, role_name, created_at, updated_at, deleted_at FROM roles WHERE role_name = $1 AND deleted_at IS NULL")
         .execute(Tuple.of(roleName))
         .map(this::mapSingleOrNull);
   }
 
   @Override
-  public Future<List<Role>> getRolesByUserId(Integer userId) {
+  public Future<List<Role>> getRolesByUserId(Long userId) {
     return client
         .preparedQuery("""
             SELECT r.role_id, r.role_name, r.created_at, r.updated_at, r.deleted_at
@@ -96,6 +100,15 @@ public class RoleQueryRepositoryImpl implements RoleQueryRepository {
         });
   }
 
+  @Override
+  public Future<Role> findByTrashedId(Long roleId) {
+    return client
+        .preparedQuery(
+            "SELECT role_id, role_name, created_at, updated_at, deleted_at FROM roles WHERE role_id = $1 AND deleted_at IS NOT NULL")
+        .execute(Tuple.of(roleId))
+        .map(this::mapSingleOrNull);
+  }
+
   private String normalizeSearch(String search) {
     return (search == null || search.isBlank()) ? null : search;
   }
@@ -111,7 +124,8 @@ public class RoleQueryRepositoryImpl implements RoleQueryRepository {
       roles.add(Role.fromRow(row));
       if (total == 0) {
         Integer tc = row.getInteger("total_count");
-        if (tc != null) total = tc;
+        if (tc != null)
+          total = tc;
       }
     }
     return new PagedResult<>(roles, total);

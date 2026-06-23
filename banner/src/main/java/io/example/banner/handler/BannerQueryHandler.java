@@ -1,76 +1,105 @@
 package io.example.banner.handler;
 
+import io.example.common.domain.PagedResult;
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.banner.domain.requests.FindAllBannerRequest;
+import io.example.banner.model.BannerResponse;
+import io.example.banner.model.BannerResponseDeleteAt;
 import io.example.banner.service.BannerQueryService;
 import io.vertx.core.Future;
-import pb.banner.BannerCommon.ApiResponseBanner;
+import lombok.RequiredArgsConstructor;
 import pb.banner.BannerCommon.ApiResponsePaginationBanner;
 import pb.banner.BannerCommon.ApiResponsePaginationBannerDeleteAt;
+import pb.banner.BannerCommon.ApiResponseBanner;
 import pb.banner.BannerCommon.FindByIdBannerRequest;
-import pb.banner.BannerQuery.FindAllBannerRequest;
 
+@RequiredArgsConstructor
 public class BannerQueryHandler implements pb.banner.VertxBannerQueryServiceGrpcServer.BannerQueryServiceApi {
-    private final BannerQueryService service;
+        private final BannerQueryService service;
 
-    public BannerQueryHandler(BannerQueryService service) {
-        this.service = service;
-    }
-
-    private pb.Api.PaginationMeta toMeta(io.example.common.model.PaginationMeta meta) {
-        if (meta == null) {
-            return pb.Api.PaginationMeta.getDefaultInstance();
+        private FindAllBannerRequest toDomainReq(pb.banner.BannerQuery.FindAllBannerRequest req) {
+                return FindAllBannerRequest.builder()
+                                .search(req.getSearch())
+                                .page(req.getPage() > 0 ? req.getPage() : 1)
+                                .pageSize(req.getPageSize() > 0 ? req.getPageSize() : 10)
+                                .build();
         }
-        return pb.Api.PaginationMeta.newBuilder()
-                .setCurrentPage(meta.currentPage())
-                .setPageSize(meta.pageSize())
-                .setTotalPages(meta.totalPages())
-                .setTotalRecords(meta.totalRecords())
-                .build();
-    }
 
-    @Override
-    public Future<ApiResponsePaginationBanner> findAll(FindAllBannerRequest req) {
-        return service.getAllBanners(req)
-                .map(resp -> ApiResponsePaginationBanner.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .addAllData(resp.data().stream().map(ProtoConverter::fromBannerResponse).toList())
-                        .setPagination(toMeta(resp.pagination()))
-                        .build());
-    }
+        private pb.Api.PaginationMeta toMeta(int totalRecords, int page, int pageSize) {
+                int currentPage = page > 0 ? page : 1;
+                int size = pageSize > 0 ? pageSize : 10;
+                int totalPages = size > 0 ? (int) Math.ceil((double) totalRecords / size) : 0;
+                return pb.Api.PaginationMeta.newBuilder()
+                                .setCurrentPage(currentPage)
+                                .setPageSize(size)
+                                .setTotalPages(totalPages)
+                                .setTotalRecords(totalRecords)
+                                .build();
+        }
 
-    @Override
-    public Future<ApiResponseBanner> findById(FindByIdBannerRequest req) {
-        return service.getBannerById((long) req.getId())
-                .map(resp -> {
-                    ApiResponseBanner.Builder builder = ApiResponseBanner.newBuilder()
-                            .setStatus(resp.status())
-                            .setMessage(resp.message());
-                    if (resp.data() != null) {
-                        builder.setData(ProtoConverter.fromBannerResponse(resp.data()));
-                    }
-                    return builder.build();
-                });
-    }
+        @Override
+        public Future<ApiResponsePaginationBanner> findAll(pb.banner.BannerQuery.FindAllBannerRequest req) {
+                FindAllBannerRequest domainReq = toDomainReq(req);
+                Future<PagedResult<BannerResponse>> bannersFuture = service.getBanners(domainReq);
 
-    @Override
-    public Future<ApiResponsePaginationBannerDeleteAt> findByActive(FindAllBannerRequest req) {
-        return service.getActiveBanners(req)
-                .map(resp -> ApiResponsePaginationBannerDeleteAt.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .addAllData(resp.data().stream().map(ProtoConverter::fromBannerResponseDeleteAt).toList())
-                        .setPagination(toMeta(resp.pagination()))
-                        .build());
-    }
+                return bannersFuture
+                                .map(res -> ApiResponsePaginationBanner.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::fromBannerResponse).toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 
-    @Override
-    public Future<ApiResponsePaginationBannerDeleteAt> findByTrashed(FindAllBannerRequest req) {
-        return service.getTrashedBanners(req)
-                .map(resp -> ApiResponsePaginationBannerDeleteAt.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .addAllData(resp.data().stream().map(ProtoConverter::fromBannerResponseDeleteAt).toList())
-                        .setPagination(toMeta(resp.pagination()))
-                        .build());
-    }
+        @Override
+        public Future<ApiResponseBanner> findById(FindByIdBannerRequest req) {
+                return service.getBannerById((long) req.getId())
+                                .map(res -> ApiResponseBanner.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .setData(ProtoConverter.fromBannerResponse(res))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
+
+        @Override
+        public Future<ApiResponsePaginationBannerDeleteAt> findByActive(
+                        pb.banner.BannerQuery.FindAllBannerRequest req) {
+                FindAllBannerRequest domainReq = toDomainReq(req);
+                Future<PagedResult<BannerResponseDeleteAt>> activeBannersFuture = service.getActiveBanners(domainReq);
+
+                return activeBannersFuture
+                                .map(res -> ApiResponsePaginationBannerDeleteAt.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::fromBannerResponseDeleteAt)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
+
+        @Override
+        public Future<ApiResponsePaginationBannerDeleteAt> findByTrashed(
+                        pb.banner.BannerQuery.FindAllBannerRequest req) {
+                FindAllBannerRequest domainReq = toDomainReq(req);
+                Future<PagedResult<BannerResponseDeleteAt>> trashedBannersFuture = service.getTrashedBanners(domainReq);
+
+                return trashedBannersFuture
+                                .map(res -> ApiResponsePaginationBannerDeleteAt.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::fromBannerResponseDeleteAt)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
 }

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.common.domain.PagedResult;
+import io.example.merchant_award.domain.requests.FindAllMerchantAwardsRequest;
 import io.example.merchant_award.model.MerchantAward;
 import io.example.merchant_award.repository.MerchantAwardQueryRepository;
 import io.vertx.core.Future;
@@ -11,18 +12,18 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantAwardQueryRepositoryImpl implements MerchantAwardQueryRepository {
   private final Pool pool;
 
-  public MerchantAwardQueryRepositoryImpl(Pool pool) {
-    this.pool = pool;
-  }
-
   @Override
-  public Future<PagedResult<MerchantAward>> getMerchantCertificationsAndAwards(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
-    String searchVal = search != null ? search : "";
+  public Future<PagedResult<MerchantAward>> getMerchantCertificationsAndAwards(FindAllMerchantAwardsRequest req) {
+    int page = req.getPage() > 0 ? req.getPage() : 1;
+    int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+    int offset = (page - 1) * pageSize;
+    String searchVal = req.getSearch() != null ? req.getSearch() : "";
 
     return pool.preparedQuery("""
         SELECT
@@ -44,9 +45,11 @@ public class MerchantAwardQueryRepositoryImpl implements MerchantAwardQueryRepos
   }
 
   @Override
-  public Future<PagedResult<MerchantAward>> getMerchantCertificationsAndAwardsActive(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
-    String searchVal = search != null ? search : "";
+  public Future<PagedResult<MerchantAward>> getMerchantCertificationsAndAwardsActive(FindAllMerchantAwardsRequest req) {
+    int page = req.getPage() > 0 ? req.getPage() : 1;
+    int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+    int offset = (page - 1) * pageSize;
+    String searchVal = req.getSearch() != null ? req.getSearch() : "";
 
     return pool.preparedQuery("""
         SELECT
@@ -68,9 +71,11 @@ public class MerchantAwardQueryRepositoryImpl implements MerchantAwardQueryRepos
   }
 
   @Override
-  public Future<PagedResult<MerchantAward>> getTrashedCertificationsAndAwards(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
-    String searchVal = search != null ? search : "";
+  public Future<PagedResult<MerchantAward>> getTrashedCertificationsAndAwards(FindAllMerchantAwardsRequest req) {
+    int page = req.getPage() > 0 ? req.getPage() : 1;
+    int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+    int offset = (page - 1) * pageSize;
+    String searchVal = req.getSearch() != null ? req.getSearch() : "";
 
     return pool.preparedQuery("""
         SELECT
@@ -103,6 +108,26 @@ public class MerchantAwardQueryRepositoryImpl implements MerchantAwardQueryRepos
         JOIN merchants m ON mca.merchant_id = m.merchant_id
         WHERE mca.merchant_certification_id = $1
           AND mca.deleted_at IS NULL;
+        """)
+        .execute(Tuple.of(id))
+        .map(rows -> {
+          if (rows.iterator().hasNext()) {
+            return MerchantAward.fromRow(rows.iterator().next());
+          }
+          return null;
+        });
+  }
+
+  @Override
+  public Future<MerchantAward> findByTrashedId(Long id) {
+    return pool.preparedQuery("""
+        SELECT
+            merchant_certification_id, merchant_id, title, description,
+            issued_by, issue_date, expiry_date, certificate_url,
+            created_at, updated_at, deleted_at
+        FROM merchant_certifications_and_awards
+        WHERE merchant_certification_id = $1
+          AND deleted_at IS NOT NULL;
         """)
         .execute(Tuple.of(id))
         .map(rows -> {

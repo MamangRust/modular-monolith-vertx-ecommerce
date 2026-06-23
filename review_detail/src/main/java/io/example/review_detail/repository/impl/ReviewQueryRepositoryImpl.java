@@ -2,13 +2,11 @@ package io.example.review_detail.repository.impl;
 
 import io.example.review_detail.repository.ReviewQueryRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ReviewQueryRepositoryImpl implements ReviewQueryRepository {
     private final pb.review.VertxReviewQueryServiceGrpcClient client;
-
-    public ReviewQueryRepositoryImpl(pb.review.VertxReviewQueryServiceGrpcClient client) {
-        this.client = client;
-    }
 
     @Override
     public Future<Boolean> exists(int reviewId) {

@@ -2,264 +2,227 @@ package io.example.transaction.service.impl;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.model.ApiResponse;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.transaction.model.*;
+import io.example.transaction.domain.requests.FindMonthlyStatsRequest;
+import io.example.transaction.model.TransactionMonthlyAmountFailed;
+import io.example.transaction.model.TransactionMonthlyAmountSuccess;
+import io.example.transaction.model.TransactionMonthlyMethod;
+import io.example.transaction.model.TransactionYearlyAmountFailed;
+import io.example.transaction.model.TransactionYearlyAmountSuccess;
+import io.example.transaction.model.TransactionYearlyMethod;
 import io.example.transaction.repository.TransactionStatsRepository;
 import io.example.transaction.service.TransactionStatsService;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class TransactionStatsServiceImpl implements TransactionStatsService {
-    private static final Logger logger = LoggerFactory.getLogger(TransactionStatsServiceImpl.class);
-
+    private static final Logger log = LoggerFactory.getLogger(TransactionStatsServiceImpl.class);
+    private static final ObjectMapper mapper = new ObjectMapper();
     private final TransactionStatsRepository repo;
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
 
-    public TransactionStatsServiceImpl(TransactionStatsRepository repo, RedisService redis, TracingMetrics metrics) {
-        this.repo = repo;
-        this.redis = redis;
-        this.metrics = metrics;
-    }
-
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyAmountSuccess>>> getMonthlyAmountTransactionSuccess(int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getMonthlyAmountSuccess");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyAmountSuccess>> getMonthlyAmountTransactionSuccess(
+            FindMonthlyStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsService.getMonthlyAmountSuccess");
+        String cacheKey = String.format("report:monthly_amount_success:%d:%d", req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:monthly_amount_success:%d:%d", year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyAmountSuccess.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_amount_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Monthly success reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyAmountSuccess> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyAmountSuccess>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly success: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyAmountTransactionSuccess(year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_amount_success", "Success");
-                                return ApiResponse.success("Monthly success reports fetched", res);
-                            });
+                    return repo.getMonthlyAmountTransactionSuccess(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get monthly success amount reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_amount_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyAmountSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyAmountSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyAmountSuccess>>> getYearlyAmountTransactionSuccess(int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getYearlyAmountSuccess");
-        Span span = Span.fromContext(ctx.getContext());
-
+    public Future<List<TransactionYearlyAmountSuccess>> getYearlyAmountTransactionSuccess(int year) {
+        var ctx = metrics.startSpan("TransactionStatsService.getYearlyAmountSuccess");
         String cacheKey = String.format("report:yearly_amount_success:%d", year);
 
-        return redis.getJsonList(cacheKey, TransactionYearlyAmountSuccess.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_amount_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Yearly success reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyAmountSuccess> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyAmountSuccess>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly success: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
                     return repo.getYearlyAmountTransactionSuccess(year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_amount_success", "Success");
-                                return ApiResponse.success("Yearly success reports fetched", res);
-                            });
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get yearly success amount reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_amount_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyAmountSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyAmountSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyAmountFailed>>> getMonthlyAmountTransactionFailed(int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getMonthlyAmountFailed");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailed(FindMonthlyStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsService.getMonthlyAmountFailed");
+        String cacheKey = String.format("report:monthly_amount_failed:%d:%d", req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:monthly_amount_failed:%d:%d", year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyAmountFailed.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_amount_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Monthly failed reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyAmountFailed> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyAmountFailed>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyAmountTransactionFailed(year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_amount_failed", "Success");
-                                return ApiResponse.success("Monthly failed reports fetched", res);
-                            });
+                    return repo.getMonthlyAmountTransactionFailed(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get monthly failed amount reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_amount_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyAmountFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyAmountFailed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyAmountFailed>>> getYearlyAmountTransactionFailed(int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getYearlyAmountFailed");
-        Span span = Span.fromContext(ctx.getContext());
-
+    public Future<List<TransactionYearlyAmountFailed>> getYearlyAmountTransactionFailed(int year) {
+        var ctx = metrics.startSpan("TransactionStatsService.getYearlyAmountFailed");
         String cacheKey = String.format("report:yearly_amount_failed:%d", year);
 
-        return redis.getJsonList(cacheKey, TransactionYearlyAmountFailed.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_amount_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Yearly failed reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyAmountFailed> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyAmountFailed>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
                     return repo.getYearlyAmountTransactionFailed(year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_amount_failed", "Success");
-                                return ApiResponse.success("Yearly failed reports fetched", res);
-                            });
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get yearly failed amount reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_amount_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyAmountFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyAmountFailed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyMethod>>> getMonthlyTransactionMethodsSuccess(int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getMonthlyTransactionMethodsSuccess");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsSuccess(FindMonthlyStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsService.getMonthlyMethodSuccess");
+        String cacheKey = String.format("report:monthly_method_success:%d:%d", req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:monthly_method_success:%d:%d", year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_method_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Monthly success methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly method success: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyTransactionMethodsSuccess(year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_method_success", "Success");
-                                return ApiResponse.success("Monthly success methods reports fetched", res);
-                            });
+                    return repo.getMonthlyTransactionMethodsSuccess(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get monthly success methods reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_method_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyMethodSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyMethodSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyMethod>>> getMonthlyTransactionMethodsFailed(int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getMonthlyTransactionMethodsFailed");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsFailed(FindMonthlyStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsService.getMonthlyMethodFailed");
+        String cacheKey = String.format("report:monthly_method_failed:%d:%d", req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:monthly_method_failed:%d:%d", year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_method_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Monthly failed methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached monthly method failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyTransactionMethodsFailed(year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_method_failed", "Success");
-                                return ApiResponse.success("Monthly failed methods reports fetched", res);
-                            });
+                    return repo.getMonthlyTransactionMethodsFailed(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get monthly failed methods reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_method_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyMethodFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyMethodFailed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyMethod>>> getYearlyTransactionMethodsSuccess(int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getYearlyTransactionMethodsSuccess");
-        Span span = Span.fromContext(ctx.getContext());
-
+    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsSuccess(int year) {
+        var ctx = metrics.startSpan("TransactionStatsService.getYearlyMethodSuccess");
         String cacheKey = String.format("report:yearly_method_success:%d", year);
 
-        return redis.getJsonList(cacheKey, TransactionYearlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_method_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Yearly success methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly method success: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
                     return repo.getYearlyTransactionMethodsSuccess(year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_method_success", "Success");
-                                return ApiResponse.success("Yearly success methods reports fetched", res);
-                            });
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get yearly success methods reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_method_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyMethodSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyMethodSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyMethod>>> getYearlyTransactionMethodsFailed(int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsService.getYearlyTransactionMethodsFailed");
-        Span span = Span.fromContext(ctx.getContext());
-
+    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsFailed(int year) {
+        var ctx = metrics.startSpan("TransactionStatsService.getYearlyMethodFailed");
         String cacheKey = String.format("report:yearly_method_failed:%d", year);
 
-        return redis.getJsonList(cacheKey, TransactionYearlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_method_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Yearly failed methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached yearly method failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
                     return repo.getYearlyTransactionMethodsFailed(year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_method_failed", "Success");
-                                return ApiResponse.success("Yearly failed methods reports fetched", res);
-                            });
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get yearly failed methods reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_method_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyMethodFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyMethodFailed", e.getMessage()));
     }
 }

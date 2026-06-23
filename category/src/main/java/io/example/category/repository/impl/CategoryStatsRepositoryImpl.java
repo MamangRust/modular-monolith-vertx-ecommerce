@@ -1,11 +1,14 @@
 package io.example.category.repository.impl;
 
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 
+import io.example.category.domain.requests.FindYearCategoryRequest;
+import io.example.category.domain.requests.FindYearMonthTotalPricesRequest;
+import io.example.category.domain.requests.FindYearTotalPricesRequest;
 import io.example.category.model.CategoriesMonthPrice;
 import io.example.category.model.CategoriesMonthlyTotalPrice;
 import io.example.category.model.CategoriesYearPrice;
@@ -16,17 +19,15 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class CategoryStatsRepositoryImpl implements CategoryStatsRepository {
 
     private final Pool client;
 
-    public CategoryStatsRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<List<CategoriesMonthlyTotalPrice>> getMonthlyTotalPrice(int year, int month) {
+    public Future<List<CategoriesMonthlyTotalPrice>> getMonthlyTotalPrice(FindYearMonthTotalPricesRequest req) {
         return client
                 .preparedQuery("""
                         WITH
@@ -58,80 +59,83 @@ public class CategoryStatsRepositoryImpl implements CategoryStatsRepository {
                         FROM all_months am LEFT JOIN monthly_totals mt ON am.year = mt.year AND am.month = mt.month
                         ORDER BY am.year::INT DESC, am.month DESC;
                         """)
-                .execute(getMonthlyTuple(year, month))
+                .execute(getMonthlyTuple(req.getYear(), req.getMonth()))
                 .map(this::mapMonthlyTotalPrice);
     }
 
     @Override
-    public Future<List<CategoriesYearlyTotalPrice>> getYearlyTotalPrice(int year) {
+    public Future<List<CategoriesYearlyTotalPrice>> getYearlyTotalPrice(FindYearTotalPricesRequest req) {
         return client
-                .preparedQuery("""
-                        WITH yearly_data AS (
-                            SELECT EXTRACT(YEAR FROM o.created_at)::integer AS year,
-                                   COALESCE(SUM(o.total_price), 0)::INTEGER AS total_revenue
-                            FROM orders o
-                                JOIN order_items oi ON o.order_id = oi.order_id
-                                JOIN products p ON oi.product_id = p.product_id
-                                JOIN categories c ON p.category_id = c.category_id
-                            WHERE o.deleted_at IS NULL AND oi.deleted_at IS NULL
-                              AND p.deleted_at IS NULL AND c.deleted_at IS NULL
-                              AND (EXTRACT(YEAR FROM o.created_at) = $1::integer OR EXTRACT(YEAR FROM o.created_at) = $1::integer - 1)
-                            GROUP BY EXTRACT(YEAR FROM o.created_at)
-                        ),
-                        all_years AS ( SELECT $1 AS year UNION SELECT $1 - 1 AS year )
-                        SELECT a.year::text AS year, COALESCE(yd.total_revenue, 0) AS total_revenue
-                        FROM all_years a LEFT JOIN yearly_data yd ON a.year = yd.year
-                        ORDER BY a.year DESC;
-                        """)
-                .execute(Tuple.of(year))
+                .preparedQuery(
+                        """
+                                WITH yearly_data AS (
+                                    SELECT EXTRACT(YEAR FROM o.created_at)::integer AS year,
+                                           COALESCE(SUM(o.total_price), 0)::INTEGER AS total_revenue
+                                    FROM orders o
+                                        JOIN order_items oi ON o.order_id = oi.order_id
+                                        JOIN products p ON oi.product_id = p.product_id
+                                        JOIN categories c ON p.category_id = c.category_id
+                                    WHERE o.deleted_at IS NULL AND oi.deleted_at IS NULL
+                                      AND p.deleted_at IS NULL AND c.deleted_at IS NULL
+                                      AND (EXTRACT(YEAR FROM o.created_at) = $1::integer OR EXTRACT(YEAR FROM o.created_at) = $1::integer - 1)
+                                    GROUP BY EXTRACT(YEAR FROM o.created_at)
+                                ),
+                                all_years AS ( SELECT $1 AS year UNION SELECT $1 - 1 AS year )
+                                SELECT a.year::text AS year, COALESCE(yd.total_revenue, 0) AS total_revenue
+                                FROM all_years a LEFT JOIN yearly_data yd ON a.year = yd.year
+                                ORDER BY a.year DESC;
+                                """)
+                .execute(Tuple.of(req.getYear()))
                 .map(this::mapYearlyTotalPrice);
     }
 
     @Override
-    public Future<List<CategoriesMonthPrice>> getMonthlyCategory(int year) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(year, 1, 1, 0, 0));
+    public Future<List<CategoriesMonthPrice>> getMonthlyCategory(FindYearCategoryRequest req) {
+        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
         return client
-                .preparedQuery("""
-                        WITH date_range AS (
-                            SELECT date_trunc('month', $1::timestamp) AS start_date,
-                                   date_trunc('month', $1::timestamp) + interval '1 year' - interval '1 day' AS end_date
-                        ), monthly_category_stats AS (
-                            SELECT c.category_id, c.name AS category_name, date_trunc('month', o.created_at) AS activity_month,
-                                   COUNT(DISTINCT o.order_id) AS order_count, SUM(oi.quantity) AS items_sold,
-                                   COALESCE(SUM(o.total_price), 0)::INTEGER AS total_revenue
-                            FROM orders o JOIN order_items oi ON o.order_id = oi.order_id
-                                 JOIN products p ON oi.product_id = p.product_id JOIN categories c ON p.category_id = c.category_id
-                            WHERE o.deleted_at IS NULL AND oi.deleted_at IS NULL AND p.deleted_at IS NULL AND c.deleted_at IS NULL
-                              AND o.created_at BETWEEN (SELECT start_date FROM date_range) AND (SELECT end_date FROM date_range)
-                            GROUP BY c.category_id, c.name, activity_month
-                        )
-                        SELECT TO_CHAR(mcs.activity_month, 'Mon') AS month, mcs.category_id, mcs.category_name,
-                               mcs.order_count, mcs.items_sold, mcs.total_revenue
-                        FROM monthly_category_stats mcs ORDER BY mcs.activity_month, mcs.total_revenue DESC;
-                        """)
+                .preparedQuery(
+                        """
+                                WITH date_range AS (
+                                    SELECT date_trunc('month', $1::timestamp) AS start_date,
+                                           date_trunc('month', $1::timestamp) + interval '1 year' - interval '1 day' AS end_date
+                                ), monthly_category_stats AS (
+                                    SELECT c.category_id, c.name AS category_name, date_trunc('month', o.created_at) AS activity_month,
+                                           COUNT(DISTINCT o.order_id) AS order_count, SUM(oi.quantity) AS items_sold,
+                                           COALESCE(SUM(o.total_price), 0)::INTEGER AS total_revenue
+                                    FROM orders o JOIN order_items oi ON o.order_id = oi.order_id
+                                         JOIN products p ON oi.product_id = p.product_id JOIN categories c ON p.category_id = c.category_id
+                                    WHERE o.deleted_at IS NULL AND oi.deleted_at IS NULL AND p.deleted_at IS NULL AND c.deleted_at IS NULL
+                                      AND o.created_at BETWEEN (SELECT start_date FROM date_range) AND (SELECT end_date FROM date_range)
+                                    GROUP BY c.category_id, c.name, activity_month
+                                )
+                                SELECT TO_CHAR(mcs.activity_month, 'Mon') AS month, mcs.category_id, mcs.category_name,
+                                       mcs.order_count, mcs.items_sold, mcs.total_revenue
+                                FROM monthly_category_stats mcs ORDER BY mcs.activity_month, mcs.total_revenue DESC;
+                                """)
                 .execute(Tuple.of(refTs))
                 .map(this::mapMonthPrice);
     }
 
     @Override
-    public Future<List<CategoriesYearPrice>> getYearlyCategory(int year) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(year, 1, 1, 0, 0));
+    public Future<List<CategoriesYearPrice>> getYearlyCategory(FindYearCategoryRequest req) {
+        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
         return client
-                .preparedQuery("""
-                        WITH last_five_years AS (
-                            SELECT c.category_id, c.name AS category_name, EXTRACT(YEAR FROM o.created_at)::text AS year,
-                                   COUNT(DISTINCT o.order_id) AS order_count, SUM(oi.quantity) AS items_sold,
-                                   COALESCE(SUM(o.total_price), 0)::INTEGER AS total_revenue,
-                                   COUNT(DISTINCT oi.product_id) AS unique_products_sold
-                            FROM orders o JOIN order_items oi ON o.order_id = oi.order_id
-                                 JOIN products p ON oi.product_id = p.product_id JOIN categories c ON p.category_id = c.category_id
-                            WHERE o.deleted_at IS NULL AND oi.deleted_at IS NULL AND p.deleted_at IS NULL AND c.deleted_at IS NULL
-                              AND EXTRACT(YEAR FROM o.created_at) BETWEEN (EXTRACT(YEAR FROM $1::timestamp) - 4) AND EXTRACT(YEAR FROM $1::timestamp)
-                            GROUP BY c.category_id, c.name, EXTRACT(YEAR FROM o.created_at)
-                        )
-                        SELECT year, category_id, category_name, order_count, items_sold, total_revenue, unique_products_sold
-                        FROM last_five_years ORDER BY year, total_revenue DESC;
-                        """)
+                .preparedQuery(
+                        """
+                                WITH last_five_years AS (
+                                    SELECT c.category_id, c.name AS category_name, EXTRACT(YEAR FROM o.created_at)::text AS year,
+                                           COUNT(DISTINCT o.order_id) AS order_count, SUM(oi.quantity) AS items_sold,
+                                           COALESCE(SUM(o.total_price), 0)::INTEGER AS total_revenue,
+                                           COUNT(DISTINCT oi.product_id) AS unique_products_sold
+                                    FROM orders o JOIN order_items oi ON o.order_id = oi.order_id
+                                         JOIN products p ON oi.product_id = p.product_id JOIN categories c ON p.category_id = c.category_id
+                                    WHERE o.deleted_at IS NULL AND oi.deleted_at IS NULL AND p.deleted_at IS NULL AND c.deleted_at IS NULL
+                                      AND EXTRACT(YEAR FROM o.created_at) BETWEEN (EXTRACT(YEAR FROM $1::timestamp) - 4) AND EXTRACT(YEAR FROM $1::timestamp)
+                                    GROUP BY c.category_id, c.name, EXTRACT(YEAR FROM o.created_at)
+                                )
+                                SELECT year, category_id, category_name, order_count, items_sold, total_revenue, unique_products_sold
+                                FROM last_five_years ORDER BY year, total_revenue DESC;
+                                """)
                 .execute(Tuple.of(refTs))
                 .map(this::mapYearPrice);
     }

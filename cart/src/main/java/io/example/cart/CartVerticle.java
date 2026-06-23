@@ -19,6 +19,9 @@ import io.example.cart.service.CartCommandService;
 import io.example.cart.service.CartQueryService;
 import io.example.cart.service.impl.CartCommandServiceImpl;
 import io.example.cart.service.impl.CartQueryServiceImpl;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -41,17 +44,18 @@ public class CartVerticle extends AbstractVerticle {
 
   private TelemetryConfig telemetryConfig;
   private GrpcClient grpcClient;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5432)
-            .put("database", "vertxdb")
-            .put("user", "vertx")
-            .put("password", "vertx")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
+            .put("user", "DRAGON")
+            .put("password", "DRAGON")
             .put("pool_size", 5))
         .put("grpc_port", 50060)
         .put("service.name", "cart-service");
@@ -96,6 +100,9 @@ public class CartVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
     
     // 3. Initialize unified gRPC Client pool & clients
     grpcClient = GrpcClient.client(vertx);
@@ -105,8 +112,8 @@ public class CartVerticle extends AbstractVerticle {
     var userQueryClient = new pb.user.VertxUserQueryServiceGrpcClient(grpcClient, addrUser);
     var productQueryClient = new pb.product.VertxProductQueryServiceGrpcClient(grpcClient, addrProduct);
 
-    CartQueryRepository queryRepo = new CartQueryRepositoryImpl(pool);
-    CartCommandRepository cmdRepo = new CartCommandRepositoryImpl(pool);
+    CartQueryRepository queryRepo = new CartQueryRepositoryImpl(chaosPool);
+    CartCommandRepository cmdRepo = new CartCommandRepositoryImpl(chaosPool);
     ProductQueryRepository productRepo = new ProductQueryRepositoryImpl(productQueryClient);
     UserQueryRepository userRepo = new UserQueryRepositoryImpl(userQueryClient);
 
@@ -170,7 +177,7 @@ public class CartVerticle extends AbstractVerticle {
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

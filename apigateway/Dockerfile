@@ -26,15 +26,17 @@ COPY shipping_address/pom.xml shipping_address/
 COPY slider/pom.xml slider/
 COPY transaction/pom.xml transaction/
 COPY user/pom.xml user/
+COPY db-migration/pom.xml db-migration/
 
 COPY common/src common/src
 COPY apigateway/src apigateway/src
 
-RUN mvn clean package -pl apigateway -am -DskipTests -q
+RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl apigateway -am -DskipTests -q -Dmaven.wagon.http.retryHandler.count=5
 
 # ---- Runtime Stage ----
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/apigateway/target/apigateway-*-fat.jar app.jar
+COPY chaos.yaml .
 EXPOSE 5000
 ENTRYPOINT ["java", "-jar", "app.jar"]

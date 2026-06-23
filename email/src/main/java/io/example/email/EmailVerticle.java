@@ -56,14 +56,11 @@ public class EmailVerticle extends AbstractVerticle {
         "email-service-topic-auth-register",
         "email-service-topic-auth-forgot-password",
         "email-service-topic-auth-verify-code-success",
-        "email-service-topic-saldo-create",
-        "email-service-topic-topup-create",
-        "email-service-topic-transaction-create",
-        "email-service-topic-transfer-create",
         "email-service-topic-merchant-create",
         "email-service-topic-merchant-update-status",
         "email-service-topic-merchant-document-create",
-        "email-service-topic-merchant-document-update-status"
+        "email-service-topic-merchant-document-update-status",
+        "email-service-topic-transaction-create"
     );
 
     consumer.handler(record -> {

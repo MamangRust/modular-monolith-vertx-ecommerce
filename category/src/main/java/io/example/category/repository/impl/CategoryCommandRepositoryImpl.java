@@ -2,22 +2,21 @@ package io.example.category.repository.impl;
 
 import io.example.category.model.Category;
 import io.example.category.repository.CategoryCommandRepository;
+import io.example.category.domain.requests.CreateCategoryRequest;
+import io.example.category.domain.requests.UpdateCategoryRequest;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
-import pb.category.CategoryCommand;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class CategoryCommandRepositoryImpl implements CategoryCommandRepository {
 
     private final Pool client;
 
-    public CategoryCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<Category> createCategory(CategoryCommand.CreateCategoryRequest req) {
+    public Future<Category> createCategory(CreateCategoryRequest req) {
         return client
                 .preparedQuery("""
                         INSERT INTO
@@ -42,7 +41,7 @@ public class CategoryCommandRepositoryImpl implements CategoryCommandRepository 
     }
 
     @Override
-    public Future<Category> updateCategory(CategoryCommand.UpdateCategoryRequest req) {
+    public Future<Category> updateCategory(UpdateCategoryRequest req) {
         return client
                 .preparedQuery("""
                         UPDATE categories
@@ -64,7 +63,7 @@ public class CategoryCommandRepositoryImpl implements CategoryCommandRepository 
                             created_at,
                             updated_at;
                         """)
-                .execute(Tuple.of((long) req.getCategoryId(), req.getName(), req.getDescription(), req.getSlugCategory(),
+                .execute(Tuple.of(req.getId(), req.getName(), req.getDescription(), req.getSlugCategory(),
                         req.getImageCategory()))
                 .map(rows -> rows.iterator().hasNext() ? Category.fromRow(rows.iterator().next()) : null);
     }
@@ -118,11 +117,11 @@ public class CategoryCommandRepositoryImpl implements CategoryCommandRepository 
     }
 
     @Override
-    public Future<Void> deleteCategoryPermanently(Long categoryId) {
+    public Future<Boolean> deleteCategoryPermanently(Long categoryId) {
         return client
                 .preparedQuery("DELETE FROM categories WHERE category_id = $1 AND deleted_at IS NOT NULL")
                 .execute(Tuple.of(categoryId))
-                .mapEmpty();
+                .map(rows -> rows.rowCount() > 0);
     }
 
     @Override

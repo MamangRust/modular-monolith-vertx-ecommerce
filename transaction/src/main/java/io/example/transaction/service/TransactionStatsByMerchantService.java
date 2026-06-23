@@ -2,17 +2,38 @@ package io.example.transaction.service;
 
 import java.util.List;
 
-import io.example.common.model.ApiResponse;
-import io.example.transaction.model.*;
+import io.example.transaction.domain.requests.FindMonthlyMerchantStatsRequest;
+import io.example.transaction.domain.requests.FindYearlyMerchantStatsRequest;
+import io.example.transaction.model.TransactionMonthlyAmountFailed;
+import io.example.transaction.model.TransactionMonthlyAmountSuccess;
+import io.example.transaction.model.TransactionMonthlyMethod;
+import io.example.transaction.model.TransactionYearlyAmountFailed;
+import io.example.transaction.model.TransactionYearlyAmountSuccess;
+import io.example.transaction.model.TransactionYearlyMethod;
 import io.vertx.core.Future;
 
 public interface TransactionStatsByMerchantService {
-    Future<ApiResponse<List<TransactionMonthlyAmountSuccess>>> getMonthlyAmountTransactionSuccessByMerchant(Integer merchantId, int year, int month);
-    Future<ApiResponse<List<TransactionYearlyAmountSuccess>>> getYearlyAmountTransactionSuccessByMerchant(Integer merchantId, int year);
-    Future<ApiResponse<List<TransactionMonthlyAmountFailed>>> getMonthlyAmountTransactionFailedByMerchant(Integer merchantId, int year, int month);
-    Future<ApiResponse<List<TransactionYearlyAmountFailed>>> getYearlyAmountTransactionFailedByMerchant(Integer merchantId, int year);
-    Future<ApiResponse<List<TransactionMonthlyMethod>>> getMonthlyTransactionMethodsByMerchantSuccess(Integer merchantId, int year, int month);
-    Future<ApiResponse<List<TransactionMonthlyMethod>>> getMonthlyTransactionMethodsByMerchantFailed(Integer merchantId, int year, int month);
-    Future<ApiResponse<List<TransactionYearlyMethod>>> getYearlyTransactionMethodsByMerchantSuccess(Integer merchantId, int year);
-    Future<ApiResponse<List<TransactionYearlyMethod>>> getYearlyTransactionMethodsByMerchantFailed(Integer merchantId, int year);
+        Future<List<TransactionMonthlyAmountSuccess>> getMonthlyAmountTransactionSuccessByMerchant(
+                        FindMonthlyMerchantStatsRequest req);
+
+        Future<List<TransactionYearlyAmountSuccess>> getYearlyAmountTransactionSuccessByMerchant(
+                        FindYearlyMerchantStatsRequest req);
+
+        Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailedByMerchant(
+                        FindMonthlyMerchantStatsRequest req);
+
+        Future<List<TransactionYearlyAmountFailed>> getYearlyAmountTransactionFailedByMerchant(
+                        FindYearlyMerchantStatsRequest req);
+
+        Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantSuccess(
+                        FindMonthlyMerchantStatsRequest req);
+
+        Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantFailed(
+                        FindMonthlyMerchantStatsRequest req);
+
+        Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantSuccess(
+                        FindYearlyMerchantStatsRequest req);
+
+        Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantFailed(
+                        FindYearlyMerchantStatsRequest req);
 }

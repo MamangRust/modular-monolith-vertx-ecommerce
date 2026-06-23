@@ -25,6 +25,9 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.grpc.server.GrpcServer;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.redis.client.RedisAPI;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
@@ -34,15 +37,16 @@ public class ShippingAddressVerticle extends AbstractVerticle {
   private static final Logger log = LoggerFactory.getLogger(ShippingAddressVerticle.class);
 
   private TelemetryConfig telemetryConfig;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5449)
-            .put("database", "ecommerce_shipping_address")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
             .put("user", "DRAGON")
             .put("password", "DRAGON")
             .put("pool_size", 5))
@@ -89,9 +93,12 @@ public class ShippingAddressVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
-    ShippingAddressQueryRepository queryRepo = new ShippingAddressQueryRepositoryImpl(pool);
-    ShippingAddressCommandRepository cmdRepo = new ShippingAddressCommandRepositoryImpl(pool);
+    ShippingAddressQueryRepository queryRepo = new ShippingAddressQueryRepositoryImpl(chaosPool);
+    ShippingAddressCommandRepository cmdRepo = new ShippingAddressCommandRepositoryImpl(chaosPool);
 
     // 3. Initialize Caching
     RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -99,7 +106,7 @@ public class ShippingAddressVerticle extends AbstractVerticle {
 
     // 4. Initialize Services
     ShippingAddressQueryService queryService = new ShippingAddressQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    ShippingAddressCommandService cmdService = new ShippingAddressCommandServiceImpl(cmdRepo, redisService, tracingMetrics);
+    ShippingAddressCommandService cmdService = new ShippingAddressCommandServiceImpl(cmdRepo, queryRepo, redisService, tracingMetrics);
 
     // 5. Initialize Handlers
     var queryHandler = new ShippingAddressQueryHandler(queryService);
@@ -133,7 +140,7 @@ public class ShippingAddressVerticle extends AbstractVerticle {
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

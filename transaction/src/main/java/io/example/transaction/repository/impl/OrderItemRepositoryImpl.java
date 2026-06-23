@@ -6,15 +6,13 @@ import java.util.List;
 import io.example.transaction.model.OrderItem;
 import io.example.transaction.repository.OrderItemRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
 import pb.order_item.VertxOrderItemQueryServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class OrderItemRepositoryImpl implements OrderItemRepository {
     private final VertxOrderItemQueryServiceGrpcClient client;
-
-    public OrderItemRepositoryImpl(VertxOrderItemQueryServiceGrpcClient client) {
-        this.client = client;
-    }
 
     @Override
     public Future<List<OrderItem>> findOrderItemByOrder(Integer orderId) {

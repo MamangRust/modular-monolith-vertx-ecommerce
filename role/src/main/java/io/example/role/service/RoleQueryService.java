@@ -1,17 +1,21 @@
 package io.example.role.service;
 
 import java.util.List;
-import io.example.common.model.ApiResponse;
-import io.example.common.model.ApiResponsePagination;
+
+import io.example.common.domain.PagedResult;
+import io.example.role.domain.requests.FindAllRolesRequest;
 import io.example.role.model.RoleResponse;
 import io.example.role.model.RoleResponseDeleteAt;
 import io.vertx.core.Future;
-import pb.RoleQuery.FindAllRoleRequest;
 
 public interface RoleQueryService {
-    Future<ApiResponsePagination<List<RoleResponse>>> getAllRoles(FindAllRoleRequest req);
-    Future<ApiResponsePagination<List<RoleResponseDeleteAt>>> getActiveRoles(FindAllRoleRequest req);
-    Future<ApiResponsePagination<List<RoleResponseDeleteAt>>> getTrashedRoles(FindAllRoleRequest req);
-    Future<ApiResponse<RoleResponse>> getRoleById(Integer roleId);
-    Future<ApiResponse<List<RoleResponse>>> getRolesByUserId(Integer userId);
+    Future<PagedResult<RoleResponse>> getAllRoles(FindAllRolesRequest req);
+
+    Future<PagedResult<RoleResponseDeleteAt>> getActiveRoles(FindAllRolesRequest req);
+
+    Future<PagedResult<RoleResponseDeleteAt>> getTrashedRoles(FindAllRolesRequest req);
+
+    Future<RoleResponse> getRoleById(Long roleId);
+
+    Future<List<RoleResponse>> getRolesByUserId(Long userId);
 }

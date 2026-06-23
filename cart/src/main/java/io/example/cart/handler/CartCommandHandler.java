@@ -1,7 +1,9 @@
 package io.example.cart.handler;
 
+import io.example.common.grpc.GrpcExceptionMapper;
 import io.example.cart.service.CartCommandService;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.cart.CartCommon.ApiResponseCart;
 import pb.cart.CartCommon.ApiResponseCartDelete;
 import pb.cart.CartCommon.ApiResponseCartAll;
@@ -9,42 +11,54 @@ import pb.cart.CartCommand.CreateCartRequest;
 import pb.cart.CartCommand.DeleteCartRequest;
 import pb.cart.CartCommand.DeleteAllCartRequest;
 
+@RequiredArgsConstructor
 public class CartCommandHandler implements pb.cart.VertxCartCommandServiceGrpcServer.CartCommandServiceApi {
-    private final CartCommandService service;
+        private final CartCommandService service;
 
-    public CartCommandHandler(CartCommandService service) {
-        this.service = service;
-    }
+        @Override
+        public Future<ApiResponseCart> create(CreateCartRequest req) {
+                var reqDomain = io.example.cart.domain.requests.CreateCartRequest.builder()
+                                .quantity(req.getQuantity())
+                                .productId((long) req.getProductId())
+                                .userId(req.getUserId())
+                                .build();
 
-    @Override
-    public Future<ApiResponseCart> create(CreateCartRequest req) {
-        return service.create(req)
-                .map(resp -> {
-                    var builder = ApiResponseCart.newBuilder()
-                            .setStatus(resp.status() != null ? resp.status() : "")
-                            .setMessage(resp.message() != null ? resp.message() : "");
-                    if (resp.data() != null) {
-                        builder.setData(ProtoConverter.toProto(resp.data()));
-                    }
-                    return builder.build();
-                });
-    }
+                return service.create(reqDomain)
+                                .map(data -> ApiResponseCart.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .setData(ProtoConverter.toProto(data))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-    @Override
-    public Future<ApiResponseCartDelete> delete(DeleteCartRequest req) {
-        return service.deletePermanent(req)
-                .map(resp -> ApiResponseCartDelete.newBuilder()
-                        .setStatus(resp.status() != null ? resp.status() : "")
-                        .setMessage(resp.message() != null ? resp.message() : "")
-                        .build());
-    }
+        @Override
+        public Future<ApiResponseCartDelete> delete(DeleteCartRequest req) {
+                var reqDomain = io.example.cart.domain.requests.DeleteCartRequest.builder()
+                                .cartIds(java.util.List.of((long) req.getCartId()))
+                                .userId(req.getUserId())
+                                .build();
 
-    @Override
-    public Future<ApiResponseCartAll> deleteAll(DeleteAllCartRequest req) {
-        return service.deleteAll(req)
-                .map(resp -> ApiResponseCartAll.newBuilder()
-                        .setStatus(resp.status() != null ? resp.status() : "")
-                        .setMessage(resp.message() != null ? resp.message() : "")
-                        .build());
-    }
+                return service.deletePermanent(reqDomain)
+                                .map(v -> ApiResponseCartDelete.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("Cart deleted permanently")
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
+
+        @Override
+        public Future<ApiResponseCartAll> deleteAll(DeleteAllCartRequest req) {
+                var reqDomain = io.example.cart.domain.requests.DeleteCartRequest.builder()
+                                .cartIds(req.getCartIdsList().stream().map(Integer::longValue).toList())
+                                .userId(req.getUserId())
+                                .build();
+
+                return service.deleteAll(reqDomain)
+                                .map(v -> ApiResponseCartAll.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("All carts deleted permanently")
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 }

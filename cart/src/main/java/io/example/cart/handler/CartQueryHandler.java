@@ -1,41 +1,48 @@
 package io.example.cart.handler;
 
+import io.example.cart.domain.requests.FindAllCartsRequest;
 import io.example.cart.service.CartQueryService;
+import io.example.common.grpc.GrpcExceptionMapper;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.cart.CartCommon.ApiResponsePaginationCart;
 import pb.cart.CartQuery.FindAllCartRequest;
 
+@RequiredArgsConstructor
 public class CartQueryHandler implements pb.cart.VertxCartQueryServiceGrpcServer.CartQueryServiceApi {
     private final CartQueryService service;
 
-    public CartQueryHandler(CartQueryService service) {
-        this.service = service;
+    private FindAllCartsRequest toDomainReq(FindAllCartRequest req) {
+        return FindAllCartsRequest.builder()
+                .userId(req.getUserId())
+                .search(req.getSearch())
+                .page(req.getPage() > 0 ? req.getPage() : 1)
+                .pageSize(req.getPageSize() > 0 ? req.getPageSize() : 10)
+                .build();
     }
 
-    private pb.Api.PaginationMeta toMeta(io.example.common.model.PaginationMeta meta) {
-        if (meta == null) {
-            return pb.Api.PaginationMeta.getDefaultInstance();
-        }
+    private pb.Api.PaginationMeta toMeta(int totalRecords, int page, int pageSize) {
+        int currentPage = page > 0 ? page : 1;
+        int size = pageSize > 0 ? pageSize : 10;
+        int totalPages = size > 0 ? (int) Math.ceil((double) totalRecords / size) : 0;
         return pb.Api.PaginationMeta.newBuilder()
-                .setCurrentPage(meta.currentPage())
-                .setPageSize(meta.pageSize())
-                .setTotalPages(meta.totalPages())
-                .setTotalRecords(meta.totalRecords())
+                .setCurrentPage(currentPage)
+                .setPageSize(size)
+                .setTotalPages(totalPages)
+                .setTotalRecords(totalRecords)
                 .build();
     }
 
     @Override
     public Future<ApiResponsePaginationCart> findAll(FindAllCartRequest req) {
-        return service.findAll(req)
-                .map(resp -> {
-                    var builder = ApiResponsePaginationCart.newBuilder()
-                            .setStatus(resp.status() != null ? resp.status() : "")
-                            .setMessage(resp.message() != null ? resp.message() : "")
-                            .setPagination(toMeta(resp.pagination()));
-                    if (resp.data() != null) {
-                        builder.addAllData(resp.data().stream().map(ProtoConverter::toProto).toList());
-                    }
-                    return builder.build();
-                });
+        FindAllCartsRequest domainReq = toDomainReq(req);
+        return service.findAll(domainReq)
+                .map(res -> ApiResponsePaginationCart.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.getData().stream().map(ProtoConverter::toProto).toList())
+                        .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
+                        .build())
+                .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
     }
 }

@@ -2,7 +2,9 @@ package io.example.merchant_policy.repository.impl;
 
 import java.util.ArrayList;
 import java.util.List;
+
 import io.example.common.domain.PagedResult;
+import io.example.merchant_policy.domain.requests.FindAllMerchantPoliciesRequest;
 import io.example.merchant_policy.model.MerchantPolicy;
 import io.example.merchant_policy.model.MerchantPolicyRelation;
 import io.example.merchant_policy.repository.MerchantPoliciesQueryRepository;
@@ -11,16 +13,18 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantPoliciesQueryRepositoryImpl implements MerchantPoliciesQueryRepository {
   private final Pool client;
 
-  public MerchantPoliciesQueryRepositoryImpl(Pool client) {
-    this.client = client;
-  }
-
   @Override
-  public Future<PagedResult<MerchantPolicyRelation>> getMerchantPolicies(String search, int page, int pageSize) {
+  public Future<PagedResult<MerchantPolicyRelation>> getMerchantPolicies(FindAllMerchantPoliciesRequest req) {
+    int page = req.getPage();
+    int pageSize = req.getPageSize();
+    String search = req.getSearch();
+
     int offset = (page > 0 ? page - 1 : 0) * pageSize;
 
     return client
@@ -43,7 +47,11 @@ public class MerchantPoliciesQueryRepositoryImpl implements MerchantPoliciesQuer
   }
 
   @Override
-  public Future<PagedResult<MerchantPolicyRelation>> getMerchantPoliciesActive(String search, int page, int pageSize) {
+  public Future<PagedResult<MerchantPolicyRelation>> getMerchantPoliciesActive(FindAllMerchantPoliciesRequest req) {
+    int page = req.getPage();
+    int pageSize = req.getPageSize();
+    String search = req.getSearch();
+
     int offset = (page > 0 ? page - 1 : 0) * pageSize;
 
     return client
@@ -66,7 +74,11 @@ public class MerchantPoliciesQueryRepositoryImpl implements MerchantPoliciesQuer
   }
 
   @Override
-  public Future<PagedResult<MerchantPolicyRelation>> getMerchantPoliciesTrashed(String search, int page, int pageSize) {
+  public Future<PagedResult<MerchantPolicyRelation>> getMerchantPoliciesTrashed(FindAllMerchantPoliciesRequest req) {
+    int page = req.getPage();
+    int pageSize = req.getPageSize();
+    String search = req.getSearch();
+
     int offset = (page > 0 ? page - 1 : 0) * pageSize;
 
     return client
@@ -94,6 +106,18 @@ public class MerchantPoliciesQueryRepositoryImpl implements MerchantPoliciesQuer
             SELECT merchant_policy_id, merchant_id, policy_type, title, description, created_at, updated_at, deleted_at
             FROM merchant_policies
             WHERE merchant_policy_id = $1 AND deleted_at IS NULL;
+            """)
+        .execute(Tuple.of(id))
+        .map(rows -> rows.iterator().hasNext() ? MerchantPolicy.fromRow(rows.iterator().next()) : null);
+  }
+
+  @Override
+  public Future<MerchantPolicy> findByTrashedId(Long id) {
+    return client
+        .preparedQuery("""
+            SELECT merchant_policy_id, merchant_id, policy_type, title, description, created_at, updated_at, deleted_at
+            FROM merchant_policies
+            WHERE merchant_policy_id = $1 AND deleted_at IS NOT NULL;
             """)
         .execute(Tuple.of(id))
         .map(rows -> rows.iterator().hasNext() ? MerchantPolicy.fromRow(rows.iterator().next()) : null);

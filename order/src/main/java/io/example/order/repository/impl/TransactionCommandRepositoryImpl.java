@@ -3,20 +3,18 @@ package io.example.order.repository.impl;
 import com.google.protobuf.Empty;
 import io.example.order.repository.TransactionCommandRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.transaction.TransactionCommon.FindByIdTransactionRequest;
 import pb.transaction.VertxTransactionCommandServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class TransactionCommandRepositoryImpl implements TransactionCommandRepository {
     private final VertxTransactionCommandServiceGrpcClient client;
 
-    public TransactionCommandRepositoryImpl(VertxTransactionCommandServiceGrpcClient client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<Boolean> deleteByOrderIDPermanent(Integer orderId) {
+    public Future<Boolean> deleteByOrderIDPermanent(Long orderId) {
         FindByIdTransactionRequest request = FindByIdTransactionRequest.newBuilder()
-                .setId(orderId)
+                .setId(orderId.intValue())
                 .build();
 
         return client.deleteTransactionByOrderPermanent(request)

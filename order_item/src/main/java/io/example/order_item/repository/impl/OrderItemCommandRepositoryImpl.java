@@ -2,6 +2,8 @@ package io.example.order_item.repository.impl;
 
 import java.util.ArrayList;
 import java.util.List;
+import io.example.order_item.domain.requests.CreateOrderItemRecordRequest;
+import io.example.order_item.domain.requests.UpdateOrderItemRecordRequest;
 import io.example.order_item.model.OrderItem;
 import io.example.order_item.repository.OrderItemCommandRepository;
 import io.vertx.core.Future;
@@ -9,16 +11,14 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepository {
     private final Pool client;
 
-    public OrderItemCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<OrderItem> createOrderItem(Integer orderId, Integer productId, Integer quantity, Integer price) {
+    public Future<OrderItem> createOrderItem(CreateOrderItemRecordRequest req) {
         return client
                 .preparedQuery("""
                         INSERT INTO order_items (
@@ -38,12 +38,12 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                             updated_at,
                             deleted_at
                         """)
-                .execute(Tuple.of(orderId, productId, quantity, price))
+                .execute(Tuple.of(req.getOrderId(), req.getProductId(), req.getQuantity(), req.getPrice()))
                 .map(this::mapSingleOrNull);
     }
 
     @Override
-    public Future<OrderItem> updateOrderItem(Integer orderItemId, Integer quantity, Integer price) {
+    public Future<OrderItem> updateOrderItem(UpdateOrderItemRecordRequest req) {
         return client
                 .preparedQuery("""
                         UPDATE order_items
@@ -64,12 +64,13 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                             updated_at,
                             deleted_at
                         """)
-                .execute(Tuple.of(orderItemId != null ? orderItemId.longValue() : null, quantity, price))
+                .execute(Tuple.of(req.getOrderItemId() != null ? req.getOrderItemId().longValue() : null,
+                        req.getQuantity(), req.getPrice()))
                 .map(this::mapSingleOrNull);
     }
 
     @Override
-    public Future<List<OrderItem>> trashOrderItem(Integer orderId) {
+    public Future<List<OrderItem>> trashOrderItem(Long orderId) {
         return client
                 .preparedQuery("""
                         UPDATE order_items
@@ -93,7 +94,7 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<List<OrderItem>> restoreOrderItem(Integer orderId) {
+    public Future<List<OrderItem>> restoreOrderItem(Long orderId) {
         return client
                 .preparedQuery("""
                         UPDATE order_items
@@ -117,7 +118,7 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<Void> deleteOrderItemPermanently(Integer orderItemId) {
+    public Future<Boolean> deleteOrderItemPermanently(Long orderItemId) {
         return client
                 .preparedQuery("""
                         DELETE FROM order_items
@@ -125,12 +126,12 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                             order_item_id = $1
                             AND deleted_at IS NOT NULL
                         """)
-                .execute(Tuple.of(orderItemId != null ? orderItemId.longValue() : null))
-                .mapEmpty();
+                .execute(Tuple.of(orderItemId))
+                .map(rows -> rows.rowCount() > 0);
     }
 
     @Override
-    public Future<Void> deleteOrderItemByOrderPermanent(Integer orderId) {
+    public Future<Boolean> deleteOrderItemByOrderPermanent(Long orderId) {
         return client
                 .preparedQuery("""
                         DELETE FROM order_items
@@ -139,11 +140,11 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                             AND deleted_at IS NOT NULL
                         """)
                 .execute(Tuple.of(orderId))
-                .mapEmpty();
+                .map(rows -> rows.rowCount() > 0);
     }
 
     @Override
-    public Future<Void> restoreAllOrderItems() {
+    public Future<Integer> restoreAllOrderItems() {
         return client
                 .preparedQuery("""
                         UPDATE order_items
@@ -153,19 +154,19 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                             deleted_at IS NOT NULL
                         """)
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     @Override
-    public Future<Void> deleteAllPermanentOrderItems() {
+    public Future<Integer> deleteAllPermanentOrderItems() {
         return client
                 .preparedQuery("DELETE FROM order_items WHERE deleted_at IS NOT NULL")
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     @Override
-    public Future<Integer> calculateTotalPrice(Integer orderId) {
+    public Future<Integer> calculateTotalPrice(Long orderId) {
         return client
                 .preparedQuery("""
                         SELECT COALESCE(SUM(quantity * price), 0)::int AS total_price

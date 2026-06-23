@@ -5,11 +5,14 @@ import io.example.category.model.CategoriesMonthPrice;
 import io.example.category.model.CategoriesMonthlyTotalPrice;
 import io.example.category.model.CategoriesYearPrice;
 import io.example.category.model.CategoriesYearlyTotalPrice;
+import io.example.category.domain.requests.FindYearMonthTotalPricesRequest;
+import io.example.category.domain.requests.FindYearTotalPricesRequest;
+import io.example.category.domain.requests.FindYearCategoryRequest;
 import io.vertx.core.Future;
 
 public interface CategoryStatsRepository {
-    Future<List<CategoriesMonthlyTotalPrice>> getMonthlyTotalPrice(int year, int month);
-    Future<List<CategoriesYearlyTotalPrice>> getYearlyTotalPrice(int year);
-    Future<List<CategoriesMonthPrice>> getMonthlyCategory(int year);
-    Future<List<CategoriesYearPrice>> getYearlyCategory(int year);
+    Future<List<CategoriesMonthlyTotalPrice>> getMonthlyTotalPrice(FindYearMonthTotalPricesRequest req);
+    Future<List<CategoriesYearlyTotalPrice>> getYearlyTotalPrice(FindYearTotalPricesRequest req);
+    Future<List<CategoriesMonthPrice>> getMonthlyCategory(FindYearCategoryRequest req);
+    Future<List<CategoriesYearPrice>> getYearlyCategory(FindYearCategoryRequest req);
 }

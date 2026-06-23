@@ -3,15 +3,13 @@ package io.example.transaction.repository.impl;
 import io.example.transaction.model.ShippingAddress;
 import io.example.transaction.repository.ShippingAddressQueryRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.shipping_address.ShippingAddressCommon.FindByIdShippingRequest;
 import pb.shipping_address.VertxShippingQueryServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class ShippingAddressQueryRepositoryImpl implements ShippingAddressQueryRepository {
     private final VertxShippingQueryServiceGrpcClient client;
-
-    public ShippingAddressQueryRepositoryImpl(VertxShippingQueryServiceGrpcClient client) {
-        this.client = client;
-    }
 
     @Override
     public Future<ShippingAddress> findByOrderId(Integer orderId) {

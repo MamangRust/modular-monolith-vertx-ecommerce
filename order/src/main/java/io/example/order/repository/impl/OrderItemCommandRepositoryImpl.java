@@ -7,28 +7,27 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.google.protobuf.Empty;
+
 import io.example.order.model.OrderItem;
 import io.example.order.repository.OrderItemCommandRepository;
 import io.vertx.core.Future;
-import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
+import lombok.RequiredArgsConstructor;
 import pb.order_item.OrderItemCommand.CreateOrderItemRecordRequest;
 import pb.order_item.OrderItemCommand.UpdateOrderItemRecordRequest;
+import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
 import pb.order_item.VertxOrderItemCommandServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepository {
     private final VertxOrderItemCommandServiceGrpcClient client;
 
-    public OrderItemCommandRepositoryImpl(VertxOrderItemCommandServiceGrpcClient client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<OrderItem> createOrderItem(Long orderId, Integer productId, Integer quantity, Integer price) {
+    public Future<OrderItem> createOrderItem(io.example.order.domain.requests.CreateOrderItemRecordRequest req) {
         CreateOrderItemRecordRequest request = CreateOrderItemRecordRequest.newBuilder()
-                .setOrderId(orderId.intValue())
-                .setProductId(productId)
-                .setQuantity(quantity)
-                .setPrice(price)
+                .setOrderId(req.getOrderId().intValue())
+                .setProductId(req.getProductId().intValue())
+                .setQuantity(req.getQuantity())
+                .setPrice(req.getPrice())
                 .build();
 
         return client.createOrderItem(request)
@@ -50,11 +49,11 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<OrderItem> updateOrderItem(Long orderItemId, Integer quantity, Integer price) {
+    public Future<OrderItem> updateOrderItem(io.example.order.domain.requests.UpdateOrderItemRecordRequest req) {
         UpdateOrderItemRecordRequest request = UpdateOrderItemRecordRequest.newBuilder()
-                .setOrderItemId(orderItemId.intValue())
-                .setQuantity(quantity)
-                .setPrice(price)
+                .setOrderItemId(req.getOrderItemId().intValue())
+                .setQuantity(req.getQuantity())
+                .setPrice(req.getPrice())
                 .build();
 
         return client.updateOrderItem(request)
@@ -76,9 +75,9 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<List<OrderItem>> trashOrderItem(Integer orderId) {
+    public Future<List<OrderItem>> trashOrderItem(Long orderId) {
         FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
-                .setId(orderId)
+                .setId(orderId.intValue())
                 .build();
 
         return client.trashOrderItem(request)
@@ -101,9 +100,9 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<List<OrderItem>> restoreOrderItem(Integer orderId) {
+    public Future<List<OrderItem>> restoreOrderItem(Long orderId) {
         FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
-                .setId(orderId)
+                .setId(orderId.intValue())
                 .build();
 
         return client.restoreOrderItem(request)
@@ -126,9 +125,9 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<Void> deleteOrderItemPermanently(Integer orderId) {
+    public Future<Void> deleteOrderItemPermanently(Long orderId) {
         FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
-                .setId(orderId)
+                .setId(orderId.intValue())
                 .build();
 
         return client.deleteOrderItemByOrderPermanent(request)
@@ -148,7 +147,8 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     private Timestamp parseTimestamp(String ts) {
-        if (ts == null || ts.isBlank()) return null;
+        if (ts == null || ts.isBlank())
+            return null;
         try {
             return Timestamp.from(Instant.parse(ts));
         } catch (Exception e) {

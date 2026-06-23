@@ -19,6 +19,9 @@ import io.example.product.service.ProductCommandService;
 import io.example.product.service.ProductQueryService;
 import io.example.product.service.impl.ProductCommandServiceImpl;
 import io.example.product.service.impl.ProductQueryServiceImpl;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -41,15 +44,16 @@ public class ProductVerticle extends AbstractVerticle {
 
     private TelemetryConfig telemetryConfig;
     private GrpcClient grpcClient;
+    private ChaosManager chaosManager;
 
     public static void main(String[] args) {
         Vertx vertx = Vertx.vertx();
 
         JsonObject config = new JsonObject()
                 .put("database", new JsonObject()
-                        .put("host", "localhost")
-                        .put("port", 5443)
-                        .put("database", "ecommerce_product")
+                        .put("host", "pgbouncer")
+                        .put("port", 6432)
+                        .put("database", "ECOMMERCE")
                         .put("user", "DRAGON")
                         .put("password", "DRAGON")
                         .put("pool_size", 5))
@@ -96,6 +100,9 @@ public class ProductVerticle extends AbstractVerticle {
                 .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
         Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+        chaosManager = new ChaosManager();
+        chaosManager.startWatcher(vertx);
+        Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
         grpcClient = GrpcClient.client(vertx);
         SocketAddress addrCategory = resolveGrpcAddress("CATEGORY", "category", 50054);
@@ -107,8 +114,8 @@ public class ProductVerticle extends AbstractVerticle {
         CategoryQueryRepository categoryRepo = new CategoryQueryRepositoryImpl(categoryQueryClient);
         MerchantQueryRepository merchantRepo = new MerchantQueryRepositoryImpl(merchantQueryClient);
 
-        ProductQueryRepository queryRepo = new ProductQueryRepositoryImpl(pool);
-        ProductCommandRepository cmdRepo = new ProductCommandRepositoryImpl(pool);
+        ProductQueryRepository queryRepo = new ProductQueryRepositoryImpl(chaosPool);
+        ProductCommandRepository cmdRepo = new ProductCommandRepositoryImpl(chaosPool);
 
         // 3. Initialize Caching
         RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -116,7 +123,8 @@ public class ProductVerticle extends AbstractVerticle {
 
         // 4. Initialize CQRS Services
         ProductQueryService queryService = new ProductQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-        ProductCommandService cmdService = new ProductCommandServiceImpl(cmdRepo, categoryRepo, merchantRepo, redisService, tracingMetrics);
+        ProductCommandService cmdService = new ProductCommandServiceImpl(cmdRepo, queryRepo, categoryRepo, merchantRepo,
+                redisService, tracingMetrics);
 
         // 5. Initialize Handlers
         var queryHandler = new ProductQueryHandler(queryService);
@@ -162,14 +170,15 @@ public class ProductVerticle extends AbstractVerticle {
         return SocketAddress.inetSocketAddress(port, host);
     }
 
-    private Future<Void> startGrpcServer(ProductQueryHandler queryHandler, ProductCommandHandler cmdHandler, int grpcPort) {
+    private Future<Void> startGrpcServer(ProductQueryHandler queryHandler, ProductCommandHandler cmdHandler,
+            int grpcPort) {
         GrpcServer grpcServer = GrpcServer.server(vertx);
 
         queryHandler.bindAll(grpcServer);
         cmdHandler.bindAll(grpcServer);
 
         return vertx.createHttpServer()
-                .requestHandler(grpcServer)
+                .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
                 .listen(grpcPort)
                 .mapEmpty();
     }

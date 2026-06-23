@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.common.domain.PagedResult;
+import io.example.merchant_business.domain.requests.FindAllMerchantBusinessRequest;
 import io.example.merchant_business.model.MerchantBusiness;
 import io.example.merchant_business.repository.MerchantBusinessQueryRepository;
 import io.vertx.core.Future;
@@ -11,18 +12,16 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantBusinessQueryRepositoryImpl implements MerchantBusinessQueryRepository {
   private final Pool client;
 
-  public MerchantBusinessQueryRepositoryImpl(Pool client) {
-    this.client = client;
-  }
-
   @Override
-  public Future<PagedResult<MerchantBusiness>> getMerchantsBusinessInformation(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
-    String searchPattern = "%" + (search != null ? search : "") + "%";
+  public Future<PagedResult<MerchantBusiness>> getMerchantsBusinessInformation(FindAllMerchantBusinessRequest req) {
+    int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+    String searchPattern = "%" + (req.getSearch() != null ? req.getSearch() : "") + "%";
 
     return client
         .preparedQuery("""
@@ -44,14 +43,15 @@ public class MerchantBusinessQueryRepositoryImpl implements MerchantBusinessQuer
             WHERE LOWER(m.name) LIKE LOWER($1)
             LIMIT $2 OFFSET $3;
             """)
-        .execute(Tuple.of(searchPattern, pageSize, offset))
+        .execute(Tuple.of(searchPattern, req.getPageSize(), offset))
         .map(this::mapPagedResults);
   }
 
   @Override
-  public Future<PagedResult<MerchantBusiness>> getMerchantsBusinessInformationActive(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
-    String searchPattern = "%" + (search != null ? search : "") + "%";
+  public Future<PagedResult<MerchantBusiness>> getMerchantsBusinessInformationActive(
+      FindAllMerchantBusinessRequest req) {
+    int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+    String searchPattern = "%" + (req.getSearch() != null ? req.getSearch() : "") + "%";
 
     return client
         .preparedQuery("""
@@ -75,14 +75,15 @@ public class MerchantBusinessQueryRepositoryImpl implements MerchantBusinessQuer
               AND LOWER(m.name) LIKE LOWER($1)
             LIMIT $2 OFFSET $3;
             """)
-        .execute(Tuple.of(searchPattern, pageSize, offset))
+        .execute(Tuple.of(searchPattern, req.getPageSize(), offset))
         .map(this::mapPagedResults);
   }
 
   @Override
-  public Future<PagedResult<MerchantBusiness>> getMerchantsBusinessInformationTrashed(String search, int page, int pageSize) {
-    int offset = (page > 0 ? page - 1 : 0) * pageSize;
-    String searchPattern = "%" + (search != null ? search : "") + "%";
+  public Future<PagedResult<MerchantBusiness>> getMerchantsBusinessInformationTrashed(
+      FindAllMerchantBusinessRequest req) {
+    int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+    String searchPattern = "%" + (req.getSearch() != null ? req.getSearch() : "") + "%";
 
     return client
         .preparedQuery("""
@@ -106,7 +107,7 @@ public class MerchantBusinessQueryRepositoryImpl implements MerchantBusinessQuer
               AND LOWER(m.name) LIKE LOWER($1)
             LIMIT $2 OFFSET $3;
             """)
-        .execute(Tuple.of(searchPattern, pageSize, offset))
+        .execute(Tuple.of(searchPattern, req.getPageSize(), offset))
         .map(this::mapPagedResults);
   }
 
@@ -130,6 +131,29 @@ public class MerchantBusinessQueryRepositoryImpl implements MerchantBusinessQuer
             JOIN merchants m ON mbi.merchant_id = m.merchant_id
             WHERE mbi.merchant_business_info_id = $1
               AND mbi.deleted_at IS NULL;
+            """)
+        .execute(Tuple.of(id))
+        .map(rows -> rows.iterator().hasNext() ? MerchantBusiness.fromRow(rows.iterator().next()) : null);
+  }
+
+  @Override
+  public Future<MerchantBusiness> findByTrashedId(Long id) {
+    return client
+        .preparedQuery("""
+            SELECT
+                merchant_business_info_id,
+                merchant_id,
+                business_type,
+                tax_id,
+                established_year,
+                number_of_employees,
+                website_url,
+                created_at,
+                updated_at,
+                deleted_at
+            FROM merchant_business_information
+            WHERE merchant_business_info_id = $1
+              AND deleted_at IS NOT NULL;
             """)
         .execute(Tuple.of(id))
         .map(rows -> rows.iterator().hasNext() ? MerchantBusiness.fromRow(rows.iterator().next()) : null);

@@ -6,16 +6,16 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
+import io.example.merchant_policy.domain.requests.CreateMerchantPoliciesRequest;
+import io.example.merchant_policy.domain.requests.UpdateMerchantPoliciesRequest;
 
+@RequiredArgsConstructor
 public class MerchantPoliciesCommandRepositoryImpl implements MerchantPoliciesCommandRepository {
   private final Pool client;
 
-  public MerchantPoliciesCommandRepositoryImpl(Pool client) {
-    this.client = client;
-  }
-
   @Override
-  public Future<MerchantPolicy> create(pb.merchant_policy.MerchantPolicyCommand.CreateMerchantPoliciesRequest req) {
+  public Future<MerchantPolicy> create(CreateMerchantPoliciesRequest req) {
     return client
         .preparedQuery("""
             INSERT INTO merchant_policies (merchant_id, policy_type, title, description)
@@ -27,7 +27,7 @@ public class MerchantPoliciesCommandRepositoryImpl implements MerchantPoliciesCo
   }
 
   @Override
-  public Future<MerchantPolicy> update(pb.merchant_policy.MerchantPolicyCommand.UpdateMerchantPoliciesRequest req) {
+  public Future<MerchantPolicy> update(UpdateMerchantPoliciesRequest req) {
     return client
         .preparedQuery("""
             UPDATE merchant_policies
@@ -58,11 +58,11 @@ public class MerchantPoliciesCommandRepositoryImpl implements MerchantPoliciesCo
   }
 
   @Override
-  public Future<Void> deletePermanent(Long id) {
+  public Future<Boolean> deletePermanent(Long id) {
     return client
         .preparedQuery("DELETE FROM merchant_policies WHERE merchant_policy_id = $1 AND deleted_at IS NOT NULL")
         .execute(Tuple.of(id))
-        .mapEmpty();
+        .map(rows -> rows.rowCount() > 0);
   }
 
   @Override

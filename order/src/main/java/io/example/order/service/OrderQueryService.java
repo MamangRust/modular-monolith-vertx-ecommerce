@@ -1,16 +1,20 @@
 package io.example.order.service;
 
-import io.example.common.model.ApiResponse;
-import io.example.common.model.ApiResponsePagination;
+import io.example.common.domain.PagedResult;
+import io.example.order.domain.requests.FindAllOrderByMerchantRequest;
+import io.example.order.domain.requests.FindAllOrderRequest;
 import io.example.order.model.OrderResponse;
 import io.example.order.model.OrderResponseDeleteAt;
 import io.vertx.core.Future;
-import java.util.List;
 
 public interface OrderQueryService {
-    Future<ApiResponsePagination<List<OrderResponse>>> getAll(String search, int page, int pageSize);
-    Future<ApiResponsePagination<List<OrderResponse>>> getActive(String search, int page, int pageSize);
-    Future<ApiResponsePagination<List<OrderResponseDeleteAt>>> getTrashed(String search, int page, int pageSize);
-    Future<ApiResponsePagination<List<OrderResponse>>> getByMerchant(Integer merchantId, String search, int page, int pageSize);
-    Future<ApiResponse<OrderResponse>> getById(Long id);
+    Future<PagedResult<OrderResponse>> getAll(FindAllOrderRequest req);
+
+    Future<PagedResult<OrderResponse>> getActive(FindAllOrderRequest req);
+
+    Future<PagedResult<OrderResponseDeleteAt>> getTrashed(FindAllOrderRequest req);
+
+    Future<PagedResult<OrderResponse>> getByMerchant(FindAllOrderByMerchantRequest req);
+
+    Future<OrderResponse> getById(Long id);
 }

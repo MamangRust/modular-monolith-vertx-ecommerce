@@ -20,7 +20,7 @@ The platform is fortified with a **comprehensive observability suite** (Promethe
 | **Transactions** | Centralized financial audit ledger collecting transaction and payment events across the system, global search filters, and status tracking. |
 | **Reviews** | Product ratings & detailed review submissions post-purchase. |
 | **Email Worker** | Kafka-driven asynchronous worker dispatching critical notification emails (OTPs, login alerts, merchant onboarding notices, and transaction invoices) via SMTP. |
-| **Observability** | Multi-dimensional metrics (Prometheus + Grafana), log aggregation (Loki + Logback), end-to-end distributed tracing (Jaeger + OpenTelemetry), continuous CPU/Memory profiling (Pyroscope), and resource monitors (Node, Kafka, Postgres Exporters). |
+| **Observability** | Multi-dimensional metrics (Prometheus + Grafana), log aggregation (Loki + Logback), end-to-end distributed tracing (Jaeger + OpenTelemetry), and resource monitors (Node, Kafka, Postgres Exporters). |
 | **Deployment** | Local orchestration using Docker Compose (featuring a 6-node Redis Cluster and PgBouncer), and auto-scaling Kubernetes manifests configured with Horizontal Pod Autoscalers (HPA). |
 
 ---
@@ -475,6 +475,17 @@ graph TB
 | **Tracing** | OpenTelemetry + Jaeger | Distributed system tracing across API gateway and internal gRPC services. |
 | **Profiling** | Pyroscope | Continuous CPU and Memory profiling across modular services to diagnose latency bottlenecks. |
 | **Alerting** | Alertmanager | Automated notification system triggered during latency hikes or service disconnects. |
+
+---
+
+## Chaos Engineering Platform
+
+The E-Commerce platform features a built-in reactive Chaos Engineering engine to continuously test system resilience under failure conditions (database spikes, SQL lock deadlocks, slow HTTP endpoints, CPU stress, and memory leaks). 
+
+The chaos engine is managed by [ChaosManager](./common/src/main/java/io/example/common/chaos/ChaosManager.java) which dynamically watches [chaos.yaml](./chaos.yaml) for modifications:
+- **Dynamic Hot-Reloading**: Checks `chaos.yaml` for changes every 5 seconds. Adjusting values or toggling policies will update the running system instantly without requiring a service restart.
+
+For details on architecture, injection mechanisms, and configuration examples, read the [Chaos Engineering Documentation](./chaos-engineering.md).
 
 ---
 
@@ -978,6 +989,121 @@ flowchart TB
     KAFKAX_POD -.-> PROM_SVC
     NODEX_SVC --> NODEX_POD
     NODEX_POD -.-> PROM_SVC
+```
+
+### ArgoCD App-of-Apps GitOps Architecture
+
+The platform follows GitOps best practices using ArgoCD for declarative continuous deployments. Replicating the App-of-Apps design pattern, a root Application (`ecommerce-root`) automatically manages and tracks the states of individual child Applications mapping to Kustomize bases.
+
+Sync waves (`argocd.argoproj.io/sync-wave` annotations) are strictly defined to guarantee database migrations run and complete before domain applications start.
+
+```mermaid
+graph TD
+    classDef root fill:#1e293b,stroke:#22d3ee,color:#cffafe,stroke-width:2.5px,font-weight:bold
+    classDef proj fill:#0f172a,stroke:#38bdf8,color:#e0f2fe,stroke-width:2px
+    classDef app fill:#1e1b4b,stroke:#a78bfa,color:#ede9fe,stroke-width:1.5px
+    classDef wave fill:#1c1917,stroke:#f59e0b,color:#fef3c7,stroke-width:1.5px
+    classDef base fill:#052e16,stroke:#34d399,color:#dcfce7,stroke-width:1.5px
+
+    RootApp["ecommerce-root<br/>(ArgoCD Root Application)"]:::root
+    AppProj["ecommerce<br/>(ArgoCD AppProject)"]:::proj
+
+    RootApp -->|Creates & Tracks| AppProj
+    RootApp -->|Deploys Application Manifests| AppIndex["Child Applications List<br/>(deployments/gitops/argocd/apps/)"]:::app
+
+    subgraph SyncWaves["Ordered Deployment Sequencing (Sync Waves 1 - 6)"]
+        direction TB
+
+        subgraph Wave1["Wave 1: Namespace & Infrastructure"]
+            W1_CM["common"]:::wave
+            W1_PG["infra-postgres"]:::wave
+            W1_RD["infra-redis"]:::wave
+            W1_KF["infra-kafka"]:::wave
+        end
+
+        subgraph Wave2["Wave 2: Database Migration"]
+            W2_MIG["db-migration"]:::wave
+        end
+
+        subgraph Wave3["Wave 3: Core Domain Services"]
+            W3_AUTH["service-auth"]:::wave
+            W3_USR["service-user"]:::wave
+            W3_ROL["service-role"]:::wave
+            W3_PROD["service-product"]:::wave
+            W3_CAT["service-category"]:::wave
+            W3_MER["service-merchant"]:::wave
+            W3_ORD["service-order"]:::wave
+            W3_CRT["service-cart"]:::wave
+            W3_EML["service-email"]:::wave
+            W3_OTH["other-domain-services"]:::wave
+        end
+
+        subgraph Wave4["Wave 4: Financial Movements"]
+            W4_TXN["service-transaction"]:::wave
+        end
+
+        subgraph Wave5["Wave 5: Reverse Proxy Gateway"]
+            W5_APIGW["apigateway"]:::wave
+            W5_NGINX["nginx"]:::wave
+        end
+
+        subgraph Wave6["Wave 6: Observability Suite"]
+            W6_OBS["service-observability"]:::wave
+        end
+
+        Wave1 -->|Triggers next wave| Wave2
+        Wave2 -->|Triggers next wave| Wave3
+        Wave3 -->|Triggers next wave| Wave4
+        Wave4 -->|Triggers next wave| Wave5
+        Wave5 -->|Triggers next wave| Wave6
+    end
+
+    AppIndex -->|Deploys| Wave1
+    AppIndex -->|Deploys| Wave2
+    AppIndex -->|Deploys| Wave3
+    AppIndex -->|Deploys| Wave4
+    AppIndex -->|Deploys| Wave5
+    AppIndex -->|Deploys| Wave6
+
+    subgraph K8sBases["Target: Kustomize Base Resources"]
+        B_COMMON["deployments/kubernetes/base/common"]:::base
+        B_PG["deployments/kubernetes/base/postgres"]:::base
+        B_RD["deployments/kubernetes/base/redis"]:::base
+        B_KF["deployments/kubernetes/base/kafka"]:::base
+        B_MIG["deployments/kubernetes/base/db-migration"]:::base
+        B_AUTH["deployments/kubernetes/base/auth"]:::base
+        B_USR["deployments/kubernetes/base/user"]:::base
+        B_ROL["deployments/kubernetes/base/role"]:::base
+        B_PROD["deployments/kubernetes/base/product"]:::base
+        B_CAT["deployments/kubernetes/base/category"]:::base
+        B_MER["deployments/kubernetes/base/merchant"]:::base
+        B_ORD["deployments/kubernetes/base/order"]:::base
+        B_CRT["deployments/kubernetes/base/cart"]:::base
+        B_EML["deployments/kubernetes/base/email"]:::base
+        B_TXN["deployments/kubernetes/base/transaction"]:::base
+        B_APIGW["deployments/kubernetes/base/apigateway"]:::base
+        B_NGINX["deployments/kubernetes/base/nginx"]:::base
+        B_OBS["deployments/kubernetes/base/observability"]:::base
+    end
+
+    W1_CM -->|Reconciles| B_COMMON
+    W1_PG -->|Reconciles| B_PG
+    W1_RD -->|Reconciles| B_RD
+    W1_KF -->|Reconciles| B_KF
+    W2_MIG -->|Reconciles| B_MIG
+    W3_AUTH -->|Reconciles| B_AUTH
+    W3_USR -->|Reconciles| B_USR
+    W3_ROL -->|Reconciles| B_ROL
+    W3_PROD -->|Reconciles| B_PROD
+    W3_CAT -->|Reconciles| B_CAT
+    W3_MER -->|Reconciles| B_MER
+    W3_ORD -->|Reconciles| B_ORD
+    W3_CRT -->|Reconciles| B_CRT
+    W3_EML -->|Reconciles| B_EML
+    W4_TXN -->|Reconciles| B_TXN
+    W5_APIGW -->|Reconciles| B_APIGW
+    W5_NGINX -->|Reconciles| B_NGINX
+    W6_OBS -->|Reconciles| B_OBS
 ```
 
 ---

@@ -15,6 +15,9 @@ import io.example.order_item.service.OrderItemCommandService;
 import io.example.order_item.service.OrderItemQueryService;
 import io.example.order_item.service.impl.OrderItemCommandServiceImpl;
 import io.example.order_item.service.impl.OrderItemQueryServiceImpl;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -34,15 +37,16 @@ public class OrderItemVerticle extends AbstractVerticle {
   private static final Logger log = LoggerFactory.getLogger(OrderItemVerticle.class);
 
   private TelemetryConfig telemetryConfig;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5442)
-            .put("database", "ecommerce_order_item")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
             .put("user", "DRAGON")
             .put("password", "DRAGON")
             .put("pool_size", 5))
@@ -64,11 +68,11 @@ public class OrderItemVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) {
     JsonObject rawConfig = config();
-    
+
     // 1. Initialize Telemetry
     JsonObject telConfig = rawConfig.copy();
     if (!telConfig.containsKey("service.name")) {
-        telConfig.put("service.name", "order-item-service");
+      telConfig.put("service.name", "order-item-service");
     }
     telemetryConfig = new TelemetryConfig(telConfig);
     OpenTelemetry openTelemetry = telemetryConfig.initialize();
@@ -89,9 +93,12 @@ public class OrderItemVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
-    
-    OrderItemQueryRepository queryRepo = new OrderItemQueryRepositoryImpl(pool);
-    OrderItemCommandRepository cmdRepo = new OrderItemCommandRepositoryImpl(pool);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
+
+    OrderItemQueryRepository queryRepo = new OrderItemQueryRepositoryImpl(chaosPool);
+    OrderItemCommandRepository cmdRepo = new OrderItemCommandRepositoryImpl(chaosPool);
 
     // 3. Initialize Caching
     RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -99,12 +106,13 @@ public class OrderItemVerticle extends AbstractVerticle {
 
     // 4. Initialize Services
     OrderItemQueryService queryService = new OrderItemQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    OrderItemCommandService cmdService = new OrderItemCommandServiceImpl(cmdRepo, redisService, tracingMetrics);
+    OrderItemCommandService cmdService = new OrderItemCommandServiceImpl(cmdRepo, queryRepo, redisService,
+        tracingMetrics);
 
     // 5. Initialize Handlers
     var queryHandler = new OrderItemQueryHandler(queryService);
     var cmdHandler = new OrderItemCommandHandler(cmdService);
-    
+
     final int finalPort = cfg.getGrpcPort() == 8083 ? 50056 : cfg.getGrpcPort();
 
     startGrpcServer(queryHandler, cmdHandler, finalPort)
@@ -126,14 +134,15 @@ public class OrderItemVerticle extends AbstractVerticle {
     stopPromise.complete();
   }
 
-  private Future<Void> startGrpcServer(OrderItemQueryHandler queryHandler, OrderItemCommandHandler cmdHandler, int grpcPort) {
+  private Future<Void> startGrpcServer(OrderItemQueryHandler queryHandler, OrderItemCommandHandler cmdHandler,
+      int grpcPort) {
     GrpcServer grpcServer = GrpcServer.server(vertx);
 
     queryHandler.bindAll(grpcServer);
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

@@ -2,18 +2,16 @@ package io.example.cart.repository.impl;
 
 import java.util.List;
 import io.example.cart.model.Cart;
-import io.example.cart.model.CartCreateRecord;
+import io.example.cart.domain.requests.CartCreateRecord;
 import io.example.cart.repository.CartCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class CartCommandRepositoryImpl implements CartCommandRepository {
     private final Pool client;
-
-    public CartCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<Cart> createCart(CartCreateRecord req) {
@@ -36,17 +34,18 @@ public class CartCommandRepositoryImpl implements CartCommandRepository {
                 .execute(Tuple.of(
                         req.getUserId(),
                         req.getProductId(),
-                        req.getQuantity() != null ? req.getProductId() : null, // wait! The quantity column should get quantity value!
+                        req.getQuantity() != null ? req.getProductId() : null, // wait! The quantity column should get
+                                                                               // quantity value!
                         // Oh! Wait! Let's check:
                         // $3 is name, $4 is price, $5 is image, $6 is quantity, $7 is weight.
-                        // In the old code: Tuple.of(req.getUserId(), req.getProductId(), req.getName(), req.getPrice(), req.getImageProduct(), req.getQuantity(), req.getWeight())
+                        // In the old code: Tuple.of(req.getUserId(), req.getProductId(), req.getName(),
+                        // req.getPrice(), req.getImageProduct(), req.getQuantity(), req.getWeight())
                         // Yes! The third parameter should be req.getName()!
                         req.getName(),
                         req.getPrice(),
                         req.getImageProduct(),
                         req.getQuantity(),
-                        req.getWeight()
-                ))
+                        req.getWeight()))
                 .map(rows -> {
                     if (rows.iterator().hasNext()) {
                         return Cart.fromRow(rows.iterator().next());

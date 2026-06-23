@@ -26,15 +26,17 @@ COPY shipping_address/pom.xml shipping_address/
 COPY slider/pom.xml slider/
 COPY transaction/pom.xml transaction/
 COPY user/pom.xml user/
+COPY db-migration/pom.xml db-migration/
 
 COPY common/src common/src
 COPY merchant_business/src merchant_business/src
 
-RUN mvn clean package -pl merchant_business -am -DskipTests -q
+RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl merchant_business -am -DskipTests -q -Dmaven.wagon.http.retryHandler.count=5
 
 # ---- Runtime Stage ----
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/merchant_business/target/merchant_business-*-fat.jar app.jar
+COPY chaos.yaml .
 EXPOSE 50066
 ENTRYPOINT ["java", "-jar", "app.jar"]

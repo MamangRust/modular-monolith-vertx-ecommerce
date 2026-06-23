@@ -1,33 +1,42 @@
 package io.example.transaction.service.impl;
 
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
-import io.example.common.service.RedisService;
 import io.example.common.service.KafkaService;
+import io.example.common.service.RedisService;
 import io.example.common.utils.EmailTemplate;
-import io.example.transaction.model.CreateTransactionRequest;
-import io.example.transaction.model.UpdateTransactionRequest;
+import io.example.transaction.domain.requests.CreateTransactionRequest;
+import io.example.transaction.domain.requests.UpdateTransactionRequest;
+import io.example.transaction.enums.PaymentStatus;
+import io.example.transaction.handler.ProtoConverter;
 import io.example.transaction.model.OrderItem;
 import io.example.transaction.model.Transaction;
-import io.example.transaction.enums.PaymentStatus;
-import io.example.transaction.repository.*;
+import io.example.transaction.repository.MerchantQueryRepository;
+import io.example.transaction.repository.OrderItemRepository;
+import io.example.transaction.repository.OrderQueryRepository;
+import io.example.transaction.repository.ShippingAddressQueryRepository;
+import io.example.transaction.repository.TransactionCommandRepository;
+import io.example.transaction.repository.TransactionQueryRepository;
+import io.example.transaction.repository.UserQueryRepository;
 import io.example.transaction.service.TransactionCommandService;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import lombok.RequiredArgsConstructor;
+import pb.transaction.TransactionCommon.TransactionResponseDeleteAt;
 
+@RequiredArgsConstructor
 public class TransactionCommandServiceImpl implements TransactionCommandService {
     private static final Logger logger = LoggerFactory.getLogger(TransactionCommandServiceImpl.class);
 
     private final TransactionCommandRepository repo;
+    private final TransactionQueryRepository queryRepository;
     private final MerchantQueryRepository merchantRepository;
     private final OrderQueryRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -39,60 +48,49 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
 
     private static final String CACHE_PREFIX = "transaction:";
 
-    public TransactionCommandServiceImpl(
-            TransactionCommandRepository repo,
-            MerchantQueryRepository merchantRepository,
-            OrderQueryRepository orderRepository,
-            OrderItemRepository orderItemRepository,
-            ShippingAddressQueryRepository shippingAddressRepository,
-            UserQueryRepository userQueryRepository,
-            RedisService redis,
-            TracingMetrics metrics,
-            KafkaService kafkaService) {
-        this.repo = repo;
-        this.merchantRepository = merchantRepository;
-        this.orderRepository = orderRepository;
-        this.orderItemRepository = orderItemRepository;
-        this.shippingAddressRepository = shippingAddressRepository;
-        this.userQueryRepository = userQueryRepository;
-        this.redis = redis;
-        this.metrics = metrics;
-        this.kafkaService = kafkaService;
+    private Future<Void> evict(Integer transactionId) {
+        return redis.delete(CACHE_PREFIX + transactionId).mapEmpty();
+    }
+
+    private Future<Void> evictByOrderId(Integer orderId) {
+        return redis.delete(CACHE_PREFIX + "order:" + orderId).mapEmpty();
+    }
+
+    private Future<Void> evictAll() {
+        return redis.deleteByPattern(CACHE_PREFIX + "*").mapEmpty();
     }
 
     @Override
-    public Future<ApiResponse<Transaction>> createTransaction(CreateTransactionRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "TransactionCommandService.createTransaction",
+    public Future<Transaction> createTransaction(CreateTransactionRequest req) {
+        var ctx = metrics.startSpan("TransactionCommandService.createTransaction",
                 Attributes.builder()
                         .put("order.id", req.getOrderID())
                         .put("merchant.id", req.getMerchantID())
                         .build());
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
 
         logger.info("Creating transaction for order: {}", req.getOrderID());
 
         return merchantRepository.findById(req.getMerchantID().intValue())
                 .compose(existsMerchant -> {
                     if (!existsMerchant) {
-                        return Future.failedFuture("Merchant not found");
+                        return Future.failedFuture(new NotFoundException("Merchant not found"));
                     }
                     return orderRepository.findById(req.getOrderID().intValue());
                 })
                 .compose(existsOrder -> {
                     if (!existsOrder) {
-                        return Future.failedFuture("Order not found");
+                        return Future.failedFuture(new NotFoundException("Order not found"));
                     }
                     return orderItemRepository.findOrderItemByOrder(req.getOrderID().intValue());
                 })
                 .compose(orderItems -> {
                     if (orderItems == null || orderItems.isEmpty()) {
-                        return Future.failedFuture("Order items not found");
+                        return Future.failedFuture(new NotFoundException("Order items not found"));
                     }
 
                     for (OrderItem item : orderItems) {
                         if (item.getQuantity() <= 0) {
-                            return Future.failedFuture("Invalid order item quantity");
+                            return Future.failedFuture(new BadRequestException("Invalid order item quantity"));
                         }
                     }
 
@@ -111,7 +109,8 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
                                 int totalAmountWithTax = totalAmount + ppn;
 
                                 if (req.getAmount() < totalAmountWithTax) {
-                                    throw new RuntimeException("Insufficient balance. Required: " + totalAmountWithTax);
+                                    throw new BadRequestException(
+                                            "Insufficient balance. Required: " + totalAmountWithTax);
                                 }
 
                                 req.setAmount(totalAmountWithTax);
@@ -141,6 +140,21 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
 
                                 return kafkaService.sendMessage("email-service-topic-transaction-create",
                                         String.valueOf(transaction.getTransactionId()), emailPayload)
+                                        .compose(v -> {
+                                            // Send transaction event to merchant module for cache invalidation
+                                            JsonObject merchantEvent = new JsonObject()
+                                                    .put("merchantId", transaction.getMerchantId())
+                                                    .put("transactionId", transaction.getTransactionId())
+                                                    .put("amount", transaction.getAmount())
+                                                    .put("status", transaction.getStatus() != null
+                                                            ? transaction.getStatus().name() : "success")
+                                                    .put("timestamp", System.currentTimeMillis());
+
+                                            return kafkaService
+                                                    .sendMessage("merchant-service-topic-transaction-event",
+                                                            String.valueOf(transaction.getMerchantId()),
+                                                            merchantEvent);
+                                        })
                                         .map(v -> transaction);
                             })
                             .recover(err -> {
@@ -148,62 +162,54 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
                                 return Future.succeededFuture(transaction);
                             });
                 })
-                .map(transaction -> {
-                    span.setAttribute("transaction.id", transaction.getTransactionId());
-                    metrics.completeSpanSuccess(tracingContext, "create", "Transaction created successfully");
-                    return ApiResponse.success("Transaction created successfully", transaction);
-                })
-                .recover(err -> {
-                    logger.error("Failed to create transaction", err);
-                    metrics.completeSpanError(tracingContext, "create", err.getMessage());
-                    return Future
-                            .succeededFuture(ApiResponse.error("Failed to create transaction: " + err.getMessage()));
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createTransaction", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to create transaction", e);
+                    metrics.completeSpanError(ctx, "createTransaction", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Transaction>> updateTransaction(UpdateTransactionRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "TransactionCommandService.updateTransaction",
+    public Future<Transaction> updateTransaction(UpdateTransactionRequest req) {
+        var ctx = metrics.startSpan("TransactionCommandService.updateTransaction",
                 Attributes.builder()
                         .put("transaction.id", req.getTransactionID())
                         .put("order.id", req.getOrderID())
                         .put("merchant.id", req.getMerchantID())
                         .build());
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
 
         logger.info("Updating transaction: {}", req.getTransactionID());
 
-        return repo.updateTransaction(req) // We can check if it exists or do it direct
+        return repo.updateTransaction(req)
                 .compose(existingTx -> {
                     if (existingTx == null) {
-                        return Future.failedFuture("Transaction not found");
+                        return Future.failedFuture(new NotFoundException("Transaction not found"));
                     }
                     if (existingTx.getStatus() == PaymentStatus.PAID) {
-                        return Future.failedFuture("Payment status cannot be modified");
+                        return Future.failedFuture(new BadRequestException("Payment status cannot be modified"));
                     }
                     return merchantRepository.findById(req.getMerchantID().intValue());
                 })
                 .compose(existsMerchant -> {
                     if (!existsMerchant) {
-                        return Future.failedFuture("Merchant not found");
+                        return Future.failedFuture(new NotFoundException("Merchant not found"));
                     }
                     return orderRepository.findById(req.getOrderID().intValue());
                 })
                 .compose(existsOrder -> {
                     if (!existsOrder) {
-                        return Future.failedFuture("Order not found");
+                        return Future.failedFuture(new NotFoundException("Order not found"));
                     }
                     return orderItemRepository.findOrderItemByOrder(req.getOrderID().intValue());
                 })
                 .compose(orderItems -> {
                     if (orderItems == null || orderItems.isEmpty()) {
-                        return Future.failedFuture("Order items not found");
+                        return Future.failedFuture(new NotFoundException("Order items not found"));
                     }
 
                     for (OrderItem item : orderItems) {
                         if (item.getQuantity() <= 0) {
-                            return Future.failedFuture("Invalid order item quantity");
+                            return Future.failedFuture(new BadRequestException("Invalid order item quantity"));
                         }
                     }
 
@@ -222,7 +228,8 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
                                 int totalAmountWithTax = totalAmount + ppn;
 
                                 if (req.getAmount() < totalAmountWithTax) {
-                                    throw new RuntimeException("Insufficient balance. Required: " + totalAmountWithTax);
+                                    throw new BadRequestException(
+                                            "Insufficient balance. Required: " + totalAmountWithTax);
                                 }
 
                                 req.setAmount(totalAmountWithTax);
@@ -232,27 +239,17 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
                             });
                 })
                 .compose(validatedReq -> repo.updateTransaction(validatedReq))
-                .compose(transaction -> {
-                    String cacheKey = CACHE_PREFIX + transaction.getTransactionId();
-                    return redis.delete(cacheKey).map(transaction);
-                })
-                .map(transaction -> {
-                    span.setAttribute("transaction.id", transaction.getTransactionId());
-                    metrics.completeSpanSuccess(tracingContext, "update", "Transaction updated successfully");
-                    return ApiResponse.success("Transaction updated successfully", transaction);
-                })
-                .recover(err -> {
-                    logger.error("Failed to update transaction", err);
-                    metrics.completeSpanError(tracingContext, "update", err.getMessage());
-                    return Future
-                            .succeededFuture(ApiResponse.error("Failed to update transaction: " + err.getMessage()));
+                .compose(transaction -> evict(transaction.getTransactionId().intValue()).map(v -> transaction))
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "updateTransaction", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to update transaction", e);
+                    metrics.completeSpanError(ctx, "updateTransaction", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Transaction>> trashTransaction(Long transactionId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "TransactionCommandService.trashTransaction",
+    public Future<TransactionResponseDeleteAt> trashTransaction(Long transactionId) {
+        var ctx = metrics.startSpan("TransactionCommandService.trashTransaction",
                 Attributes.builder().put("transaction.id", transactionId).build());
 
         logger.info("Trashing transaction: {}", transactionId);
@@ -260,139 +257,130 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
         return repo.trashTransaction(transactionId)
                 .compose(data -> {
                     if (data == null) {
-                        return Future.failedFuture("Transaction not found");
+                        return Future.failedFuture(new NotFoundException("Transaction not found"));
                     }
-                    String cacheKey = CACHE_PREFIX + transactionId;
-                    return redis.delete(cacheKey).map(data);
+                    return evict(transactionId.intValue()).map(v -> data);
                 })
-                .map(data -> {
-                    metrics.completeSpanSuccess(tracingContext, "trash", "Transaction trashed successfully");
-                    return ApiResponse.success("Transaction trashed successfully", data);
-                })
-                .recover(err -> {
-                    logger.error("Failed to trash transaction", err);
-                    metrics.completeSpanError(tracingContext, "trash", err.getMessage());
-                    return Future
-                            .succeededFuture(ApiResponse.error("Failed to trash transaction: " + err.getMessage()));
+                .map(ProtoConverter::toProtoResponseDeleteAt)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trashTransaction", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to trash transaction", e);
+                    metrics.completeSpanError(ctx, "trashTransaction", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Transaction>> restoreTransaction(Long transactionId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "TransactionCommandService.restoreTransaction",
+    public Future<TransactionResponseDeleteAt> restoreTransaction(Long transactionId) {
+        var ctx = metrics.startSpan("TransactionCommandService.restoreTransaction",
                 Attributes.builder().put("transaction.id", transactionId).build());
 
         logger.info("Restoring transaction: {}", transactionId);
 
-        return repo.restoreTransaction(transactionId)
+        return queryRepository.findByTrashedId(transactionId)
+                .compose(existing -> {
+                    if (existing == null) {
+                        return Future
+                                .failedFuture(new BadRequestException("Transaction not found or not in trashed state"));
+                    }
+                    return repo.restoreTransaction(transactionId);
+                })
                 .compose(data -> {
                     if (data == null) {
-                        return Future.failedFuture("Transaction not found");
+                        return Future
+                                .failedFuture(new BadRequestException("Transaction not found or not in trashed state"));
                     }
-                    String cacheKey = CACHE_PREFIX + transactionId;
-                    return redis.delete(cacheKey).map(data);
+                    return evict(transactionId.intValue()).map(v -> data);
                 })
-                .map(data -> {
-                    metrics.completeSpanSuccess(tracingContext, "restore", "Transaction restored successfully");
-                    return ApiResponse.success("Transaction restored successfully", data);
-                })
-                .recover(err -> {
-                    logger.error("Failed to restore transaction", err);
-                    metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-                    return Future
-                            .succeededFuture(ApiResponse.error("Failed to restore transaction: " + err.getMessage()));
+                .map(ProtoConverter::toProtoResponseDeleteAt)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restoreTransaction", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to restore transaction", e);
+                    metrics.completeSpanError(ctx, "restoreTransaction", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Void>> deleteTransactionPermanently(Long transactionId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "TransactionCommandService.deleteTransactionPermanently",
+    public Future<Void> deleteTransactionPermanently(Long transactionId) {
+        var ctx = metrics.startSpan("TransactionCommandService.deleteTransactionPermanently",
                 Attributes.builder().put("transaction.id", transactionId).build());
 
         logger.info("Permanently deleting transaction: {}", transactionId);
 
-        return repo.deleteTransactionPermanently(transactionId)
-                .compose(v -> {
-                    String cacheKey = CACHE_PREFIX + transactionId;
-                    return redis.delete(cacheKey).map(v);
+        return queryRepository.findByTrashedId(transactionId)
+                .compose(existing -> {
+                    if (existing == null) {
+                        return Future.failedFuture(
+                                new BadRequestException("Transaction not found or must be trashed first"));
+                    }
+                    return repo.deleteTransactionPermanently(transactionId);
                 })
-                .map(v -> {
-                    metrics.completeSpanSuccess(tracingContext, "delete_permanent", "Transaction deleted permanently");
-                    return ApiResponse.<Void>success("Transaction deleted permanently");
+                .compose(deleted -> {
+                    if (!deleted) {
+                        return Future.<Void>failedFuture(
+                                new BadRequestException("Transaction not found or must be trashed first"));
+                    }
+                    return evict(transactionId.intValue());
                 })
-                .recover(err -> {
-                    logger.error("Failed to permanently delete transaction", err);
-                    metrics.completeSpanError(tracingContext, "delete_permanent", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to permanently delete transaction: " + err.getMessage()));
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deleteTransactionPermanently", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to delete transaction permanently", e);
+                    metrics.completeSpanError(ctx, "deleteTransactionPermanently", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Void>> deleteTransactionByOrderIdPermanently(Long orderId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "TransactionCommandService.deleteTransactionByOrderIdPermanently",
+    public Future<Void> deleteTransactionByOrderIdPermanently(Long orderId) {
+        var ctx = metrics.startSpan("TransactionCommandService.deleteTransactionByOrderIdPermanently",
                 Attributes.builder().put("order.id", orderId).build());
 
         logger.info("Permanently deleting transaction by order id: {}", orderId);
 
         return repo.deleteTransactionByOrderIdPermanently(orderId)
-                .compose(v -> {
-                    String cacheKey = CACHE_PREFIX + "order:" + orderId;
-                    return redis.delete(cacheKey).map(v);
-                })
-                .map(v -> {
-                    metrics.completeSpanSuccess(tracingContext, "delete_by_order_permanent",
-                            "Transaction deleted permanently by order id");
-                    return ApiResponse.<Void>success("Transaction deleted permanently by order id");
-                })
-                .recover(err -> {
-                    logger.error("Failed to permanently delete transaction by order id", err);
-                    metrics.completeSpanError(tracingContext, "delete_by_order_permanent", err.getMessage());
-                    return Future.succeededFuture(ApiResponse
-                            .<Void>error("Failed to permanently delete transaction by order id: " + err.getMessage()));
+                .compose(v -> evictByOrderId(orderId.intValue()))
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deleteTransactionByOrderIdPermanently", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to permanently delete transaction by order id", e);
+                    metrics.completeSpanError(ctx, "deleteTransactionByOrderIdPermanently", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Integer>> restoreAllTransactions() {
-        TracingMetrics.TracingContext tracingContext = metrics
-                .startSpan("TransactionCommandService.restoreAllTransactions");
+    public Future<Void> restoreAllTransactions() {
+        var ctx = metrics.startSpan("TransactionCommandService.restoreAllTransactions");
 
         logger.info("Restoring all transactions");
 
         return repo.restoreAllTransactions()
-                .map(count -> {
-                    metrics.completeSpanSuccess(tracingContext, "restore_all", "Success");
-                    return ApiResponse.success("All transactions restored successfully", count);
+                .compose(count -> {
+                    if (count == 0) {
+                        return Future.<Void>failedFuture(new NotFoundException("No trashed transactions found"));
+                    }
+                    return evictAll();
                 })
-                .recover(err -> {
-                    logger.error("Failed to restore all transactions", err);
-                    metrics.completeSpanError(tracingContext, "restore_all", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.error("Failed to restore all transactions: " + err.getMessage()));
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restoreAllTransactions", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to restore all transactions", e);
+                    metrics.completeSpanError(ctx, "restoreAllTransactions", e.getMessage());
                 });
     }
 
     @Override
-    public Future<ApiResponse<Integer>> deleteAllPermanentTransactions() {
-        TracingMetrics.TracingContext tracingContext = metrics
-                .startSpan("TransactionCommandService.deleteAllPermanentTransactions");
+    public Future<Void> deleteAllPermanentTransactions() {
+        var ctx = metrics.startSpan("TransactionCommandService.deleteAllPermanentTransactions");
 
-        logger.info("Permanently deleting all trashed transactions");
+        logger.info("Permanently deleting all transactions");
 
         return repo.deleteAllPermanentTransactions()
-                .map(count -> {
-                    metrics.completeSpanSuccess(tracingContext, "delete_all_permanent", "Success");
-                    return ApiResponse.success("All trashed transactions permanently deleted successfully", count);
+                .compose(count -> {
+                    if (count == 0) {
+                        return Future.<Void>failedFuture(new NotFoundException("No trashed transactions found"));
+                    }
+                    return evictAll();
                 })
-                .recover(err -> {
-                    logger.error("Failed to permanently delete all transactions", err);
-                    metrics.completeSpanError(tracingContext, "delete_all_permanent", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.error("Failed to permanently delete all transactions: " + err.getMessage()));
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deleteAllPermanentTransactions", "Success"))
+                .onFailure(e -> {
+                    logger.error("Failed to permanently delete all transactions", e);
+                    metrics.completeSpanError(ctx, "deleteAllPermanentTransactions", e.getMessage());
                 });
     }
 }

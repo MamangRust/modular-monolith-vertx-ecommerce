@@ -1,159 +1,137 @@
 package io.example.transaction.handler;
 
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.transaction.domain.requests.FindMonthlyMerchantStatsRequest;
+import io.example.transaction.domain.requests.FindYearlyMerchantStatsRequest;
 import io.example.transaction.service.TransactionStatsByMerchantService;
 import io.vertx.core.Future;
-import pb.transaction.TransactionCommon.*;
-import pb.transaction.TransactionStatsBymerchant.*;
+import lombok.RequiredArgsConstructor;
+import pb.transaction.TransactionCommon.ApiResponseTransactionMonthAmountFailed;
+import pb.transaction.TransactionCommon.ApiResponseTransactionMonthAmountSuccess;
+import pb.transaction.TransactionCommon.ApiResponseTransactionMonthPaymentMethod;
+import pb.transaction.TransactionCommon.ApiResponseTransactionYearAmountFailed;
+import pb.transaction.TransactionCommon.ApiResponseTransactionYearAmountSuccess;
+import pb.transaction.TransactionCommon.ApiResponseTransactionYearPaymentmethod;
+import pb.transaction.TransactionStatsBymerchant.MonthAmountTransactionMerchantRequest;
+import pb.transaction.TransactionStatsBymerchant.MonthMethodTransactionMerchantRequest;
+import pb.transaction.TransactionStatsBymerchant.YearAmountTransactionMerchantRequest;
+import pb.transaction.TransactionStatsBymerchant.YearMethodTransactionMerchantRequest;
 import pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer;
 
-public class TransactionStatsByMerchantHandler implements VertxTransactionStatsByMerchantServiceGrpcServer.TransactionStatsByMerchantServiceApi {
+@RequiredArgsConstructor
+public class TransactionStatsByMerchantHandler
+        implements VertxTransactionStatsByMerchantServiceGrpcServer.TransactionStatsByMerchantServiceApi {
     private final TransactionStatsByMerchantService service;
 
-    public TransactionStatsByMerchantHandler(TransactionStatsByMerchantService service) {
-        this.service = service;
+    @Override
+    public Future<ApiResponseTransactionMonthAmountSuccess> getMonthlyAmountSuccessByMerchant(
+            MonthAmountTransactionMerchantRequest req) {
+        return service
+                .getMonthlyAmountTransactionSuccessByMerchant(
+                        new FindMonthlyMerchantStatsRequest(req.getMerchantId(), req.getYear(), req.getMonth()))
+                .map(res -> ApiResponseTransactionMonthAmountSuccess.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoSuccess).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionMonthAmountSuccess> getMonthlyAmountSuccessByMerchant(MonthAmountTransactionMerchantRequest req) {
-        return service.getMonthlyAmountTransactionSuccessByMerchant(req.getMerchantId(), req.getYear(), req.getMonth())
-                .map(res -> {
-                    ApiResponseTransactionMonthAmountSuccess.Builder builder = ApiResponseTransactionMonthAmountSuccess.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoSuccess)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionYearAmountSuccess> getYearlyAmountSuccessByMerchant(
+            YearAmountTransactionMerchantRequest req) {
+        return service
+                .getYearlyAmountTransactionSuccessByMerchant(
+                        new FindYearlyMerchantStatsRequest(req.getMerchantId(), req.getYear()))
+                .map(res -> ApiResponseTransactionYearAmountSuccess.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoSuccess).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionYearAmountSuccess> getYearlyAmountSuccessByMerchant(YearAmountTransactionMerchantRequest req) {
-        return service.getYearlyAmountTransactionSuccessByMerchant(req.getMerchantId(), req.getYear())
-                .map(res -> {
-                    ApiResponseTransactionYearAmountSuccess.Builder builder = ApiResponseTransactionYearAmountSuccess.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoSuccess)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionMonthAmountFailed> getMonthlyAmountFailedByMerchant(
+            MonthAmountTransactionMerchantRequest req) {
+        return service
+                .getMonthlyAmountTransactionFailedByMerchant(
+                        new FindMonthlyMerchantStatsRequest(req.getMerchantId(), req.getYear(), req.getMonth()))
+                .map(res -> ApiResponseTransactionMonthAmountFailed.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoFailed).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionMonthAmountFailed> getMonthlyAmountFailedByMerchant(MonthAmountTransactionMerchantRequest req) {
-        return service.getMonthlyAmountTransactionFailedByMerchant(req.getMerchantId(), req.getYear(), req.getMonth())
-                .map(res -> {
-                    ApiResponseTransactionMonthAmountFailed.Builder builder = ApiResponseTransactionMonthAmountFailed.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoFailed)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionYearAmountFailed> getYearlyAmountFailedByMerchant(
+            YearAmountTransactionMerchantRequest req) {
+        return service
+                .getYearlyAmountTransactionFailedByMerchant(
+                        new FindYearlyMerchantStatsRequest(req.getMerchantId(), req.getYear()))
+                .map(res -> ApiResponseTransactionYearAmountFailed.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoFailed).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionYearAmountFailed> getYearlyAmountFailedByMerchant(YearAmountTransactionMerchantRequest req) {
-        return service.getYearlyAmountTransactionFailedByMerchant(req.getMerchantId(), req.getYear())
-                .map(res -> {
-                    ApiResponseTransactionYearAmountFailed.Builder builder = ApiResponseTransactionYearAmountFailed.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoFailed)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionMonthPaymentMethod> getMonthlyTransactionMethodByMerchantSuccess(
+            MonthMethodTransactionMerchantRequest req) {
+        return service
+                .getMonthlyTransactionMethodsByMerchantSuccess(
+                        new FindMonthlyMerchantStatsRequest(req.getMerchantId(), req.getYear(), req.getMonth()))
+                .map(res -> ApiResponseTransactionMonthPaymentMethod.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoMethod).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionMonthPaymentMethod> getMonthlyTransactionMethodByMerchantSuccess(MonthMethodTransactionMerchantRequest req) {
-        return service.getMonthlyTransactionMethodsByMerchantSuccess(req.getMerchantId(), req.getYear(), req.getMonth())
-                .map(res -> {
-                    ApiResponseTransactionMonthPaymentMethod.Builder builder = ApiResponseTransactionMonthPaymentMethod.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoMethod)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionYearPaymentmethod> getYearlyTransactionMethodByMerchantSuccess(
+            YearMethodTransactionMerchantRequest req) {
+        return service
+                .getYearlyTransactionMethodsByMerchantSuccess(
+                        new FindYearlyMerchantStatsRequest(req.getMerchantId(), req.getYear()))
+                .map(res -> ApiResponseTransactionYearPaymentmethod.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoMethod).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionYearPaymentmethod> getYearlyTransactionMethodByMerchantSuccess(YearMethodTransactionMerchantRequest req) {
-        return service.getYearlyTransactionMethodsByMerchantSuccess(req.getMerchantId(), req.getYear())
-                .map(res -> {
-                    ApiResponseTransactionYearPaymentmethod.Builder builder = ApiResponseTransactionYearPaymentmethod.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoMethod)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionMonthPaymentMethod> getMonthlyTransactionMethodByMerchantFailed(
+            MonthMethodTransactionMerchantRequest req) {
+        return service
+                .getMonthlyTransactionMethodsByMerchantFailed(
+                        new FindMonthlyMerchantStatsRequest(req.getMerchantId(), req.getYear(), req.getMonth()))
+                .map(res -> ApiResponseTransactionMonthPaymentMethod.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoMethod).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseTransactionMonthPaymentMethod> getMonthlyTransactionMethodByMerchantFailed(MonthMethodTransactionMerchantRequest req) {
-        return service.getMonthlyTransactionMethodsByMerchantFailed(req.getMerchantId(), req.getYear(), req.getMonth())
-                .map(res -> {
-                    ApiResponseTransactionMonthPaymentMethod.Builder builder = ApiResponseTransactionMonthPaymentMethod.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoMethod)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponseTransactionYearPaymentmethod> getYearlyTransactionMethodByMerchantFailed(YearMethodTransactionMerchantRequest req) {
-        return service.getYearlyTransactionMethodsByMerchantFailed(req.getMerchantId(), req.getYear())
-                .map(res -> {
-                    ApiResponseTransactionYearPaymentmethod.Builder builder = ApiResponseTransactionYearPaymentmethod.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream()
-                                .map(ProtoConverter::toProtoMethod)
-                                .toList());
-                    }
-
-                    return builder.build();
-                });
+    public Future<ApiResponseTransactionYearPaymentmethod> getYearlyTransactionMethodByMerchantFailed(
+            YearMethodTransactionMerchantRequest req) {
+        return service
+                .getYearlyTransactionMethodsByMerchantFailed(
+                        new FindYearlyMerchantStatsRequest(req.getMerchantId(), req.getYear()))
+                .map(res -> ApiResponseTransactionYearPaymentmethod.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .addAllData(res.stream().map(ProtoConverter::toProtoMethod).toList())
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 }

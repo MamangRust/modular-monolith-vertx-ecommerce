@@ -6,15 +6,14 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
-import pb.merchant_business.MerchantBusinessCommand.CreateMerchantBusinessRequest;
-import pb.merchant_business.MerchantBusinessCommand.UpdateMerchantBusinessRequest;
+import lombok.RequiredArgsConstructor;
+import io.example.merchant_business.domain.requests.CreateMerchantBusinessRequest;
+import io.example.merchant_business.domain.requests.UpdateMerchantBusinessRequest;
 
+@RequiredArgsConstructor
 public class MerchantBusinessCommandRepositoryImpl implements MerchantBusinessCommandRepository {
   private final Pool client;
 
-  public MerchantBusinessCommandRepositoryImpl(Pool client) {
-    this.client = client;
-  }
 
   @Override
   public Future<MerchantBusiness> create(CreateMerchantBusinessRequest req) {

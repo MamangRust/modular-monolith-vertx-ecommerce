@@ -3,6 +3,7 @@ package io.example.order_item.repository.impl;
 import java.util.ArrayList;
 import java.util.List;
 import io.example.common.domain.PagedResult;
+import io.example.order_item.domain.requests.FindAllOrderItemRequest;
 import io.example.order_item.model.OrderItem;
 import io.example.order_item.repository.OrderItemQueryRepository;
 import io.vertx.core.Future;
@@ -10,17 +11,15 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
     private final Pool client;
 
-    public OrderItemQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<PagedResult<OrderItem>> getOrderItems(String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
+    public Future<PagedResult<OrderItem>> getOrderItems(FindAllOrderItemRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
         return client
                 .preparedQuery("""
                         SELECT
@@ -45,13 +44,13 @@ public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
                         LIMIT $2
                         OFFSET $3
                         """)
-                .execute(Tuple.of(normalizeSearch(search), pageSize, offset))
+                .execute(Tuple.of(normalizeSearch(req.getSearch()), req.getPageSize(), offset))
                 .map(this::mapPagedOrderItems);
     }
 
     @Override
-    public Future<PagedResult<OrderItem>> getOrderItemsActive(String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
+    public Future<PagedResult<OrderItem>> getOrderItemsActive(FindAllOrderItemRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
         return client
                 .preparedQuery("""
                         SELECT
@@ -76,13 +75,13 @@ public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
                         LIMIT $2
                         OFFSET $3
                         """)
-                .execute(Tuple.of(normalizeSearch(search), pageSize, offset))
+                .execute(Tuple.of(normalizeSearch(req.getSearch()), req.getPageSize(), offset))
                 .map(this::mapPagedOrderItems);
     }
 
     @Override
-    public Future<PagedResult<OrderItem>> getOrderItemsTrashed(String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
+    public Future<PagedResult<OrderItem>> getOrderItemsTrashed(FindAllOrderItemRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
         return client
                 .preparedQuery("""
                         SELECT
@@ -107,12 +106,12 @@ public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
                         LIMIT $2
                         OFFSET $3
                         """)
-                .execute(Tuple.of(normalizeSearch(search), pageSize, offset))
+                .execute(Tuple.of(normalizeSearch(req.getSearch()), req.getPageSize(), offset))
                 .map(this::mapPagedOrderItems);
     }
 
     @Override
-    public Future<List<OrderItem>> getOrderItemsByOrder(Integer orderId) {
+    public Future<List<OrderItem>> getOrderItemsByOrder(Long orderId) {
         return client
                 .preparedQuery("""
                         SELECT
@@ -133,6 +132,28 @@ public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
                 .map(this::mapList);
     }
 
+    @Override
+    public Future<OrderItem> findByTrashedId(Long orderItemId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            order_item_id,
+                            order_id,
+                            product_id,
+                            quantity,
+                            price,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM order_items
+                        WHERE
+                            order_item_id = $1
+                            AND deleted_at IS NOT NULL
+                        """)
+                .execute(Tuple.of(orderItemId))
+                .map(this::map);
+    }
+
     private String normalizeSearch(String search) {
         if (search == null || search.isBlank()) {
             return null;
@@ -146,6 +167,13 @@ public class OrderItemQueryRepositoryImpl implements OrderItemQueryRepository {
             items.add(OrderItem.fromRow(row));
         }
         return items;
+    }
+
+    private OrderItem map(RowSet<Row> rows) {
+        if (rows.rowCount() == 0) {
+            return null;
+        }
+        return OrderItem.fromRow(rows.iterator().next());
     }
 
     private PagedResult<OrderItem> mapPagedOrderItems(RowSet<Row> rows) {

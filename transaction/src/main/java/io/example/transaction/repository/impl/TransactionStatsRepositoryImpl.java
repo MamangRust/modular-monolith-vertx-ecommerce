@@ -8,19 +8,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.transaction.model.*;
+import io.example.transaction.domain.requests.FindMonthlyStatsRequest;
 import io.example.transaction.repository.TransactionStatsRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class TransactionStatsRepositoryImpl implements TransactionStatsRepository {
     private final Pool client;
-
-    public TransactionStatsRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     private Tuple getMonthlyTuple(int year, int month) {
         LocalDate start = LocalDate.of(year, month, 1);
@@ -31,7 +30,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
     }
 
     @Override
-    public Future<List<TransactionMonthlyAmountSuccess>> getMonthlyAmountTransactionSuccess(int year, int month) {
+    public Future<List<TransactionMonthlyAmountSuccess>> getMonthlyAmountTransactionSuccess(FindMonthlyStatsRequest req) {
         return client
                 .preparedQuery(
                         """
@@ -52,7 +51,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
                                     WHERE NOT EXISTS (SELECT 1 FROM monthly_data WHERE year = EXTRACT(YEAR FROM $3::timestamp)::integer AND month = EXTRACT(MONTH FROM $3::timestamp)::integer)
                                 ) SELECT * FROM formatted_data ORDER BY year DESC, TO_DATE(month, 'Mon') DESC;
                                 """)
-                .execute(getMonthlyTuple(year, month))
+                .execute(getMonthlyTuple(req.getYear(), req.getMonth()))
                 .map(this::mapMonthlySuccess);
     }
 
@@ -78,7 +77,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
     }
 
     @Override
-    public Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailed(int year, int month) {
+    public Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailed(FindMonthlyStatsRequest req) {
         return client
                 .preparedQuery(
                         """
@@ -98,7 +97,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
                                     WHERE NOT EXISTS (SELECT 1 FROM monthly_data WHERE year = EXTRACT(YEAR FROM $3::timestamp)::integer AND month = EXTRACT(MONTH FROM $3::timestamp)::integer)
                                 ) SELECT * FROM formatted_data ORDER BY year DESC, TO_DATE(month, 'Mon') DESC;
                                 """)
-                .execute(getMonthlyTuple(year, month))
+                .execute(getMonthlyTuple(req.getYear(), req.getMonth()))
                 .map(this::mapMonthlyFailed);
     }
 
@@ -124,7 +123,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
     }
 
     @Override
-    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsSuccess(int year, int month) {
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsSuccess(FindMonthlyStatsRequest req) {
         return client
                 .preparedQuery(
                         """
@@ -147,12 +146,12 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
                                 FROM all_combinations ac LEFT JOIN monthly_transactions mt ON ac.activity_month = mt.activity_month AND ac.payment_method = mt.payment_method
                                 ORDER BY ac.activity_month, ac.payment_method;
                                 """)
-                .execute(getMonthlyTuple(year, month))
+                .execute(getMonthlyTuple(req.getYear(), req.getMonth()))
                 .map(this::mapMonthlyMethod);
     }
 
     @Override
-    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsFailed(int year, int month) {
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsFailed(FindMonthlyStatsRequest req) {
         return client
                 .preparedQuery(
                         """
@@ -175,7 +174,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
                                 FROM all_combinations ac LEFT JOIN monthly_transactions mt ON ac.activity_month = mt.activity_month AND ac.payment_method = mt.payment_method
                                 ORDER BY ac.activity_month, ac.payment_method;
                                 """)
-                .execute(getMonthlyTuple(year, month))
+                .execute(getMonthlyTuple(req.getYear(), req.getMonth()))
                 .map(this::mapMonthlyMethod);
     }
 

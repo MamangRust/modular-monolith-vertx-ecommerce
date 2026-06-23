@@ -28,6 +28,10 @@ import io.example.merchant.service.impl.MerchantCommandServiceImpl;
 import io.example.merchant.service.impl.MerchantQueryServiceImpl;
 import io.example.merchant.service.impl.MerchantDocumentCommandServiceImpl;
 import io.example.merchant.service.impl.MerchantDocumentQueryServiceImpl;
+import io.example.merchant.service.kafka.MerchantKafkaConsumerService;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -53,18 +57,20 @@ public class MerchantVerticle extends AbstractVerticle {
 
   private TelemetryConfig telemetryConfig;
   private GrpcClient grpcClient;
+  private ChaosManager chaosManager;
   private KafkaService kafkaService;
+  private MerchantKafkaConsumerService kafkaConsumerService;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5432)
-            .put("database", "vertxdb")
-            .put("user", "vertx")
-            .put("password", "vertx")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
+            .put("user", "DRAGON")
+            .put("password", "DRAGON")
             .put("pool_size", 5))
         .put("grpc_port", 50055)
         .put("service.name", "merchant-service");
@@ -109,16 +115,19 @@ public class MerchantVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
     // 3. Initialize unified gRPC Client pool & clients
     grpcClient = GrpcClient.client(vertx);
     SocketAddress addrUser = resolveGrpcAddress("USER", "user", 50053);
     var userQueryClient = new pb.user.VertxUserQueryServiceGrpcClient(grpcClient, addrUser);
 
-    MerchantQueryRepository queryRepo = new MerchantQueryRepositoryImpl(pool);
-    MerchantCommandRepository cmdRepo = new MerchantCommandRepositoryImpl(pool);
-    MerchantDocumentQueryRepository docQueryRepo = new MerchantDocumentQueryRepositoryImpl(pool);
-    MerchantDocumentCommandRepository docCmdRepo = new MerchantDocumentCommandRepositoryImpl(pool);
+    MerchantQueryRepository queryRepo = new MerchantQueryRepositoryImpl(chaosPool);
+    MerchantCommandRepository cmdRepo = new MerchantCommandRepositoryImpl(chaosPool);
+    MerchantDocumentQueryRepository docQueryRepo = new MerchantDocumentQueryRepositoryImpl(chaosPool);
+    MerchantDocumentCommandRepository docCmdRepo = new MerchantDocumentCommandRepositoryImpl(chaosPool);
     UserQueryRepository userRepo = new UserQueryRepositoryImpl(userQueryClient);
 
     // 4. Initialize Kafka Service
@@ -134,11 +143,17 @@ public class MerchantVerticle extends AbstractVerticle {
     RedisAPI redisAPI = RedisConfig.createClient(vertx);
     RedisService redisService = new RedisService(redisAPI, openTelemetry);
 
-    // 6. Initialize Services
+    // 6. Initialize Kafka Consumer Service (internal event processing)
+    this.kafkaConsumerService = new MerchantKafkaConsumerService(vertx, redisService, openTelemetry);
+
+    // 7. Initialize Services
     MerchantQueryService queryService = new MerchantQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    MerchantCommandService cmdService = new MerchantCommandServiceImpl(cmdRepo, queryRepo, userRepo, redisService, tracingMetrics, kafkaService);
-    MerchantDocumentQueryService docQueryService = new MerchantDocumentQueryServiceImpl(docQueryRepo, redisService, tracingMetrics);
-    MerchantDocumentCommandService docCmdService = new MerchantDocumentCommandServiceImpl(docCmdRepo, queryRepo, userRepo, redisService, tracingMetrics, kafkaService);
+    MerchantCommandService cmdService = new MerchantCommandServiceImpl(cmdRepo, queryRepo, userRepo, redisService,
+        tracingMetrics, kafkaService);
+    MerchantDocumentQueryService docQueryService = new MerchantDocumentQueryServiceImpl(docQueryRepo, redisService,
+        tracingMetrics);
+    MerchantDocumentCommandService docCmdService = new MerchantDocumentCommandServiceImpl(docCmdRepo, docQueryRepo,
+        queryRepo, userRepo, redisService, tracingMetrics, kafkaService);
 
     // 7. Initialize Handlers
     var queryHandler = new MerchantQueryHandler(queryService);
@@ -169,6 +184,9 @@ public class MerchantVerticle extends AbstractVerticle {
     }
     if (kafkaService != null) {
       kafkaService.close();
+    }
+    if (kafkaConsumerService != null) {
+      kafkaConsumerService.close();
     }
     stopPromise.complete();
   }
@@ -204,7 +222,7 @@ public class MerchantVerticle extends AbstractVerticle {
     docCmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

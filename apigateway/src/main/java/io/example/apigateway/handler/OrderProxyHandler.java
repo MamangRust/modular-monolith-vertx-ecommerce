@@ -1,9 +1,13 @@
 package io.example.apigateway.handler;
 
-import io.example.apigateway.utils.ProtoMapper;
+import static io.example.apigateway.utils.GrpcGatewayUtils.sendResponse;
+
+import io.example.apigateway.utils.GrpcGatewayUtils;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import pb.order.OrderCommon;
 import pb.order.OrderCommand;
 import pb.order.OrderQuery;
@@ -11,308 +15,282 @@ import pb.order.VertxOrderQueryServiceGrpcClient;
 import pb.order.VertxOrderCommandServiceGrpcClient;
 import pb.order.VertxOrderStatsServiceGrpcClient;
 
+@Slf4j
+@RequiredArgsConstructor
 public class OrderProxyHandler {
-    private final VertxOrderQueryServiceGrpcClient queryClient;
-    private final VertxOrderCommandServiceGrpcClient commandClient;
-    private final VertxOrderStatsServiceGrpcClient statsClient;
+        private final VertxOrderQueryServiceGrpcClient queryClient;
+        private final VertxOrderCommandServiceGrpcClient commandClient;
+        private final VertxOrderStatsServiceGrpcClient statsClient;
 
-    public OrderProxyHandler(
-            VertxOrderQueryServiceGrpcClient queryClient,
-            VertxOrderCommandServiceGrpcClient commandClient,
-            VertxOrderStatsServiceGrpcClient statsClient) {
-        this.queryClient = queryClient;
-        this.commandClient = commandClient;
-        this.statsClient = statsClient;
-    }
+        public void findAll(RoutingContext ctx) {
+                var req = OrderQuery.FindAllOrderRequest.newBuilder()
+                                .setSearch(GrpcGatewayUtils.getQueryString(ctx, "search", ""))
+                                .setPage(GrpcGatewayUtils.getQueryInt(ctx, "page", 1))
+                                .setPageSize(GrpcGatewayUtils.getQueryInt(ctx, "pageSize", 10))
+                                .build();
 
-    public void findAll(RoutingContext ctx) {
-        var req = OrderQuery.FindAllOrderRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
-
-        queryClient.findAll(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void findActive(RoutingContext ctx) {
-        var req = OrderQuery.FindAllOrderRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
-
-        queryClient.findByActive(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void findTrashed(RoutingContext ctx) {
-        var req = OrderQuery.FindAllOrderRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
-
-        queryClient.findByTrashed(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void findById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
-
-        queryClient.findById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void create(RoutingContext ctx) {
-        if (ctx.user() == null || ctx.user().principal() == null) {
-            ctx.response().setStatusCode(401).end("Unauthorized");
-            return;
-        }
-        int userId = ctx.user().principal().getInteger("userId", 0);
-        JsonObject body = ctx.body().asJsonObject();
-
-        var builder = OrderCommand.CreateOrderRequest.newBuilder()
-                .setMerchantId(body.getInteger("merchant_id", 0))
-                .setUserId(userId)
-                .setTotalPrice(body.getInteger("total_price", 0));
-
-        JsonArray itemsArr = body.getJsonArray("items");
-        if (itemsArr != null) {
-            for (int i = 0; i < itemsArr.size(); i++) {
-                JsonObject itemObj = itemsArr.getJsonObject(i);
-                builder.addItems(OrderCommand.CreateOrderItemRequest.newBuilder()
-                        .setProductId(itemObj.getInteger("product_id", 0))
-                        .setQuantity(itemObj.getInteger("quantity", 0))
-                        .setPrice(itemObj.getInteger("price", 0))
-                        .build());
-            }
+                queryClient.findAll(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
         }
 
-        JsonObject shippingObj = body.getJsonObject("shipping");
-        if (shippingObj != null) {
-            builder.setShipping(pb.shipping_address.ShippingAddressCommand.CreateShippingAddressRequest.newBuilder()
-                    .setAlamat(shippingObj.getString("alamat", ""))
-                    .setProvinsi(shippingObj.getString("provinsi", ""))
-                    .setKota(shippingObj.getString("kota", ""))
-                    .setCourier(shippingObj.getString("courier", ""))
-                    .setShippingMethod(shippingObj.getString("shipping_method", ""))
-                    .setShippingCost(shippingObj.getInteger("shipping_cost", 0))
-                    .setNegara(shippingObj.getString("negara", ""))
-                    .build());
+        public void findActive(RoutingContext ctx) {
+                var req = OrderQuery.FindAllOrderRequest.newBuilder()
+                                .setSearch(GrpcGatewayUtils.getQueryString(ctx, "search", ""))
+                                .setPage(GrpcGatewayUtils.getQueryInt(ctx, "page", 1))
+                                .setPageSize(GrpcGatewayUtils.getQueryInt(ctx, "pageSize", 10))
+                                .build();
+
+                queryClient.findByActive(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
         }
 
-        commandClient.create(builder.build())
-                .onSuccess(resp -> sendResponse(ctx, resp, 201))
-                .onFailure(ctx::fail);
-    }
+        public void findTrashed(RoutingContext ctx) {
+                var req = OrderQuery.FindAllOrderRequest.newBuilder()
+                                .setSearch(GrpcGatewayUtils.getQueryString(ctx, "search", ""))
+                                .setPage(GrpcGatewayUtils.getQueryInt(ctx, "page", 1))
+                                .setPageSize(GrpcGatewayUtils.getQueryInt(ctx, "pageSize", 10))
+                                .build();
 
-    public void update(RoutingContext ctx) {
-        if (ctx.user() == null || ctx.user().principal() == null) {
-            ctx.response().setStatusCode(401).end("Unauthorized");
-            return;
-        }
-        int userId = ctx.user().principal().getInteger("userId", 0);
-        int orderId = Integer.parseInt(ctx.pathParam("id"));
-        JsonObject body = ctx.body().asJsonObject();
-
-        var builder = OrderCommand.UpdateOrderRequest.newBuilder()
-                .setOrderId(orderId)
-                .setUserId(userId)
-                .setTotalPrice(body.getInteger("total_price", 0));
-
-        JsonArray itemsArr = body.getJsonArray("items");
-        if (itemsArr != null) {
-            for (int i = 0; i < itemsArr.size(); i++) {
-                JsonObject itemObj = itemsArr.getJsonObject(i);
-                builder.addItems(OrderCommand.UpdateOrderItemRequest.newBuilder()
-                        .setOrderItemId(itemObj.getInteger("order_item_id", 0))
-                        .setProductId(itemObj.getInteger("product_id", 0))
-                        .setQuantity(itemObj.getInteger("quantity", 0))
-                        .setPrice(itemObj.getInteger("price", 0))
-                        .build());
-            }
+                queryClient.findByTrashed(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
         }
 
-        JsonObject shippingObj = body.getJsonObject("shipping");
-        if (shippingObj != null) {
-            builder.setShipping(pb.shipping_address.ShippingAddressCommand.UpdateShippingAddressRequest.newBuilder()
-                    .setShippingId(shippingObj.getInteger("shipping_id", 0))
-                    .setAlamat(shippingObj.getString("alamat", ""))
-                    .setProvinsi(shippingObj.getString("provinsi", ""))
-                    .setKota(shippingObj.getString("kota", ""))
-                    .setCourier(shippingObj.getString("courier", ""))
-                    .setShippingMethod(shippingObj.getString("shipping_method", ""))
-                    .setShippingCost(shippingObj.getInteger("shipping_cost", 0))
-                    .setNegara(shippingObj.getString("negara", ""))
-                    .build());
+        public void findById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
+
+                queryClient.findById(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
         }
 
-        commandClient.update(builder.build())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void create(RoutingContext ctx) {
+                if (ctx.user() == null || ctx.user().principal() == null) {
+                        GrpcGatewayUtils.handleError(ctx, new Exception("Unauthorized"));
+                        return;
+                }
 
-    public void trash(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
+                int userId = ctx.user().principal().getInteger("userId", 0);
+                JsonObject body = ctx.body().asJsonObject();
 
-        commandClient.trashedOrder(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                var builder = OrderCommand.CreateOrderRequest.newBuilder()
+                                .setMerchantId(GrpcGatewayUtils.getJsonInteger(body, "merchant_id", 0))
+                                .setUserId(userId)
+                                .setTotalPrice(GrpcGatewayUtils.getJsonInteger(body, "total_price", 0));
 
-    public void restore(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
+                JsonArray itemsArr = body.getJsonArray("items");
+                if (itemsArr != null) {
+                        for (int i = 0; i < itemsArr.size(); i++) {
+                                JsonObject itemObj = itemsArr.getJsonObject(i);
+                                builder.addItems(OrderCommand.CreateOrderItemRequest.newBuilder()
+                                                .setProductId(GrpcGatewayUtils.getJsonInteger(itemObj, "product_id", 0))
+                                                .setQuantity(GrpcGatewayUtils.getJsonInteger(itemObj, "quantity", 0))
+                                                .setPrice(GrpcGatewayUtils.getJsonInteger(itemObj, "price", 0))
+                                                .build());
+                        }
+                }
 
-        commandClient.restoreOrder(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                JsonObject shippingObj = body.getJsonObject("shipping");
+                if (shippingObj != null) {
+                        builder.setShipping(pb.shipping_address.ShippingAddressCommand.CreateShippingAddressRequest
+                                        .newBuilder()
+                                        .setAlamat(GrpcGatewayUtils.getJsonString(shippingObj, "alamat", ""))
+                                        .setProvinsi(GrpcGatewayUtils.getJsonString(shippingObj, "provinsi", ""))
+                                        .setKota(GrpcGatewayUtils.getJsonString(shippingObj, "kota", ""))
+                                        .setCourier(GrpcGatewayUtils.getJsonString(shippingObj, "courier", ""))
+                                        .setShippingMethod(GrpcGatewayUtils.getJsonString(shippingObj,
+                                                        "shipping_method", ""))
+                                        .setShippingCost(GrpcGatewayUtils.getJsonInteger(shippingObj, "shipping_cost",
+                                                        0))
+                                        .setNegara(GrpcGatewayUtils.getJsonString(shippingObj, "negara", ""))
+                                        .build());
+                }
 
-    public void deletePermanent(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
+                commandClient.create(builder.build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 201))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        commandClient.deleteOrderPermanent(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void update(RoutingContext ctx) {
+                if (ctx.user() == null || ctx.user().principal() == null) {
+                        GrpcGatewayUtils.handleError(ctx, new Exception("Unauthorized"));
+                        return;
+                }
 
-    public void restoreAll(RoutingContext ctx) {
-        commandClient.restoreAllOrder(com.google.protobuf.Empty.getDefaultInstance())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                int userId = ctx.user().principal().getInteger("userId", 0);
+                int orderId = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                JsonObject body = ctx.body().asJsonObject();
 
-    public void deleteAll(RoutingContext ctx) {
-        commandClient.deleteAllOrderPermanent(com.google.protobuf.Empty.getDefaultInstance())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                var builder = OrderCommand.UpdateOrderRequest.newBuilder()
+                                .setOrderId(orderId)
+                                .setUserId(userId)
+                                .setTotalPrice(GrpcGatewayUtils.getJsonInteger(body, "total_price", 0));
 
-    // Stats Mappings
-    public void findMonthlyTotalRevenue(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-        int month = ctx.queryParams().contains("month") ? Integer.parseInt(ctx.queryParams().get("month")) : 0;
+                JsonArray itemsArr = body.getJsonArray("items");
+                if (itemsArr != null) {
+                        for (int i = 0; i < itemsArr.size(); i++) {
+                                JsonObject itemObj = itemsArr.getJsonObject(i);
+                                builder.addItems(OrderCommand.UpdateOrderItemRequest.newBuilder()
+                                                .setOrderItemId(GrpcGatewayUtils.getJsonInteger(itemObj,
+                                                                "order_item_id", 0))
+                                                .setProductId(GrpcGatewayUtils.getJsonInteger(itemObj, "product_id", 0))
+                                                .setQuantity(GrpcGatewayUtils.getJsonInteger(itemObj, "quantity", 0))
+                                                .setPrice(GrpcGatewayUtils.getJsonInteger(itemObj, "price", 0))
+                                                .build());
+                        }
+                }
 
-        var req = OrderQuery.FindYearMonthTotalRevenue.newBuilder()
-                .setYear(year)
-                .setMonth(month)
-                .build();
+                JsonObject shippingObj = body.getJsonObject("shipping");
+                if (shippingObj != null) {
+                        builder.setShipping(pb.shipping_address.ShippingAddressCommand.UpdateShippingAddressRequest
+                                        .newBuilder()
+                                        .setShippingId(GrpcGatewayUtils.getJsonInteger(shippingObj, "shipping_id", 0))
+                                        .setAlamat(GrpcGatewayUtils.getJsonString(shippingObj, "alamat", ""))
+                                        .setProvinsi(GrpcGatewayUtils.getJsonString(shippingObj, "provinsi", ""))
+                                        .setKota(GrpcGatewayUtils.getJsonString(shippingObj, "kota", ""))
+                                        .setCourier(GrpcGatewayUtils.getJsonString(shippingObj, "courier", ""))
+                                        .setShippingMethod(GrpcGatewayUtils.getJsonString(shippingObj,
+                                                        "shipping_method", ""))
+                                        .setShippingCost(GrpcGatewayUtils.getJsonInteger(shippingObj, "shipping_cost",
+                                                        0))
+                                        .setNegara(GrpcGatewayUtils.getJsonString(shippingObj, "negara", ""))
+                                        .build());
+                }
 
-        statsClient.findMonthlyTotalRevenue(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.update(builder.build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearlyTotalRevenue(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void trash(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
 
-        var req = OrderQuery.FindYearTotalRevenue.newBuilder()
-                .setYear(year)
-                .build();
+                commandClient.trashedOrder(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findYearlyTotalRevenue(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void restore(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
 
-    public void findMonthlyTotalRevenueByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-        int month = ctx.queryParams().contains("month") ? Integer.parseInt(ctx.queryParams().get("month")) : 0;
+                commandClient.restoreOrder(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = OrderQuery.FindYearMonthTotalRevenueByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .setMonth(month)
-                .build();
+        public void deletePermanent(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderCommon.FindByIdOrderRequest.newBuilder().setId(id).build();
 
-        statsClient.findMonthlyTotalRevenueByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.deleteOrderPermanent(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearlyTotalRevenueByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void restoreAll(RoutingContext ctx) {
+                commandClient.restoreAllOrder(com.google.protobuf.Empty.getDefaultInstance())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = OrderQuery.FindYearTotalRevenueByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .build();
+        public void deleteAll(RoutingContext ctx) {
+                commandClient.deleteAllOrderPermanent(com.google.protobuf.Empty.getDefaultInstance())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findYearlyTotalRevenueByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findMonthlyTotalRevenue(RoutingContext ctx) {
+                var req = OrderQuery.FindYearMonthTotalRevenue.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .setMonth(GrpcGatewayUtils.getQueryInt(ctx, "month", 0))
+                                .build();
 
-    public void findMonthlyRevenue(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+                statsClient.findMonthlyTotalRevenue(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = OrderQuery.FindYearOrder.newBuilder()
-                .setYear(year)
-                .build();
+        public void findYearlyTotalRevenue(RoutingContext ctx) {
+                var req = OrderQuery.FindYearTotalRevenue.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .build();
 
-        statsClient.findMonthlyRevenue(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                statsClient.findYearlyTotalRevenue(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearlyRevenue(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void findMonthlyTotalRevenueByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderQuery.FindYearMonthTotalRevenueByMerchant.newBuilder()
+                                .setMerchantId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .setMonth(GrpcGatewayUtils.getQueryInt(ctx, "month", 0))
+                                .build();
 
-        var req = OrderQuery.FindYearOrder.newBuilder()
-                .setYear(year)
-                .build();
+                statsClient.findMonthlyTotalRevenueByMerchant(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findYearlyRevenue(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findYearlyTotalRevenueByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderQuery.FindYearTotalRevenueByMerchant.newBuilder()
+                                .setMerchantId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .build();
 
-    public void findMonthlyRevenueByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+                statsClient.findYearlyTotalRevenueByMerchant(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = OrderQuery.FindYearOrderByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .build();
+        public void findMonthlyRevenue(RoutingContext ctx) {
+                var req = OrderQuery.FindYearOrder.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .build();
 
-        statsClient.findMonthlyRevenueByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                statsClient.findMonthlyRevenue(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearlyRevenueByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void findYearlyRevenue(RoutingContext ctx) {
+                var req = OrderQuery.FindYearOrder.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .build();
 
-        var req = OrderQuery.FindYearOrderByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .build();
+                statsClient.findYearlyRevenue(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findYearlyRevenueByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findMonthlyRevenueByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderQuery.FindYearOrderByMerchant.newBuilder()
+                                .setMerchantId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .build();
 
-    private void sendResponse(RoutingContext ctx, com.google.protobuf.MessageOrBuilder proto, int defaultStatus) {
-        JsonObject json = ProtoMapper.toJson(proto);
-        int status = json.getInteger("status", defaultStatus);
-        ctx.response()
-                .setStatusCode(status == 0 ? defaultStatus : status)
-                .putHeader("Content-Type", "application/json")
-                .end(json.encode());
-    }
+                statsClient.findMonthlyRevenueByMerchant(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
+
+        public void findYearlyRevenueByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = OrderQuery.FindYearOrderByMerchant.newBuilder()
+                                .setMerchantId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .build();
+
+                statsClient.findYearlyRevenueByMerchant(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 }

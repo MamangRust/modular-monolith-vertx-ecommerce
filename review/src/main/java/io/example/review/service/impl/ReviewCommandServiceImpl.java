@@ -1,27 +1,26 @@
 package io.example.review.service.impl;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.review.model.Review;
+import io.example.review.domain.requests.CreateReviewRequest;
+import io.example.review.domain.requests.UpdateReviewRequest;
 import io.example.review.model.ReviewResponse;
 import io.example.review.model.ReviewResponseDeleteAt;
-import io.example.review.model.CreateReviewRequest;
-import io.example.review.model.UpdateReviewRequest;
 import io.example.review.repository.ReviewCommandRepository;
+import io.example.review.repository.ReviewQueryRepository;
 import io.example.review.repository.UserQueryRepository;
 import io.example.review.repository.ProductQueryRepository;
 import io.example.review.service.ReviewCommandService;
-
 import io.opentelemetry.api.common.Attributes;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ReviewCommandServiceImpl implements ReviewCommandService {
-    private static final Logger log = LoggerFactory.getLogger(ReviewCommandServiceImpl.class);
     private final ReviewCommandRepository repository;
+    private final ReviewQueryRepository queryRepository;
     private final UserQueryRepository userRepository;
     private final ProductQueryRepository productRepository;
     private final RedisService redis;
@@ -29,21 +28,16 @@ public class ReviewCommandServiceImpl implements ReviewCommandService {
 
     private static final String CACHE_PREFIX = "review:";
 
-    public ReviewCommandServiceImpl(
-            ReviewCommandRepository repository,
-            UserQueryRepository userRepository,
-            ProductQueryRepository productRepository,
-            RedisService redis,
-            TracingMetrics metrics) {
-        this.repository = repository;
-        this.userRepository = userRepository;
-        this.productRepository = productRepository;
-        this.redis = redis;
-        this.metrics = metrics;
+    private Future<Void> evict(Long id) {
+        return redis.delete(CACHE_PREFIX + id).<Void>mapEmpty();
+    }
+
+    private Future<Void> evictAll() {
+        return redis.deleteByPattern(CACHE_PREFIX + "list:*").<Void>mapEmpty();
     }
 
     @Override
-    public Future<ApiResponse<ReviewResponse>> createReview(CreateReviewRequest req) {
+    public Future<ReviewResponse> createReview(CreateReviewRequest req) {
         var ctx = metrics.startSpan("ReviewCommandService.createReview",
                 Attributes.builder()
                         .put("review.user_id", (long) req.getUserId())
@@ -53,26 +47,23 @@ public class ReviewCommandServiceImpl implements ReviewCommandService {
         return userRepository.findById(req.getUserId())
                 .compose(userExists -> {
                     if (!userExists) {
-                        return Future.failedFuture("User not found");
+                        return Future.failedFuture(new NotFoundException("User not found"));
                     }
                     return productRepository.findById(req.getProductId().intValue());
                 })
                 .compose(productExists -> {
                     if (!productExists) {
-                        return Future.failedFuture("Product not found");
+                        return Future.failedFuture(new NotFoundException("Product not found"));
                     }
                     return repository.createReview(req);
                 })
-                .map(created -> {
-                    metrics.completeSpanSuccess(ctx, "createReview", "Review created successfully");
-                    return ApiResponse.success("Review created successfully", ReviewResponse.from(created));
-                })
-                .onFailure(e -> metrics.completeSpanError(ctx, "createReview", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .map(ReviewResponse::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createReview", "Review created successfully"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "createReview", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<ReviewResponse>> updateReview(UpdateReviewRequest req) {
+    public Future<ReviewResponse> updateReview(UpdateReviewRequest req) {
         Long reviewId = req.getReviewId();
         var ctx = metrics.startSpan("ReviewCommandService.updateReview",
                 Attributes.builder().put("review.id", reviewId).build());
@@ -80,105 +71,103 @@ public class ReviewCommandServiceImpl implements ReviewCommandService {
         return repository.updateReview(req)
                 .compose(updated -> {
                     if (updated == null) {
-                        return Future.failedFuture("Review not found or already deleted");
+                        return Future.failedFuture(new NotFoundException("Review not found"));
                     }
-                    String cacheKey = CACHE_PREFIX + reviewId;
-                    return redis.delete(cacheKey)
-                            .map(updated);
+                    return evict(reviewId).map(v -> updated);
                 })
-                .map(updated -> {
-                    metrics.completeSpanSuccess(ctx, "updateReview", "Review updated successfully");
-                    return ApiResponse.success("Review updated successfully", ReviewResponse.from(updated));
-                })
-                .onFailure(e -> metrics.completeSpanError(ctx, "updateReview", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .map(ReviewResponse::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "updateReview", "Review updated successfully"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "updateReview", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<ReviewResponseDeleteAt>> trashReview(Long reviewId) {
+    public Future<ReviewResponseDeleteAt> trashReview(Long reviewId) {
         var ctx = metrics.startSpan("ReviewCommandService.trashReview",
                 Attributes.builder().put("review.id", reviewId).build());
 
         return repository.trashReview(reviewId)
                 .compose(trashed -> {
                     if (trashed == null) {
-                        return Future.failedFuture("Review not found");
+                        return Future.failedFuture(new NotFoundException("Review not found"));
                     }
-                    String cacheKey = CACHE_PREFIX + reviewId;
-                    return redis.delete(cacheKey)
-                            .map(trashed);
+                    return evict(reviewId).map(v -> trashed);
                 })
-                .map(trashed -> {
-                    metrics.completeSpanSuccess(ctx, "trashReview", "Review trashed successfully");
-                    return ApiResponse.success("Review trashed successfully", ReviewResponseDeleteAt.from(trashed));
-                })
-                .onFailure(e -> metrics.completeSpanError(ctx, "trashReview", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .map(ReviewResponseDeleteAt::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trashReview", "Review trashed successfully"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "trashReview", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<ReviewResponseDeleteAt>> restoreReview(Long reviewId) {
+    public Future<ReviewResponseDeleteAt> restoreReview(Long reviewId) {
         var ctx = metrics.startSpan("ReviewCommandService.restoreReview",
                 Attributes.builder().put("review.id", reviewId).build());
 
-        return repository.restoreReview(reviewId)
-                .compose(restored -> {
-                    if (restored == null) {
-                        return Future.failedFuture("Review not found");
+        return queryRepository.findByIdTrashed(reviewId)
+                .compose(trashed -> {
+                    if (trashed == null) {
+                        return Future.failedFuture(new NotFoundException("Review not found or not in trashed state"));
                     }
-                    String cacheKey = CACHE_PREFIX + reviewId;
-                    return redis.delete(cacheKey)
-                            .map(restored);
+                    return repository.restoreReview(reviewId)
+                            .compose(restored -> {
+                                if (restored == null) {
+                                    return Future.failedFuture(new NotFoundException("Review not found"));
+                                }
+                                return evict(reviewId).map(v -> restored);
+                            });
                 })
-                .map(restored -> {
-                    metrics.completeSpanSuccess(ctx, "restoreReview", "Review restored successfully");
-                    return ApiResponse.success("Review restored successfully", ReviewResponseDeleteAt.from(restored));
-                })
-                .onFailure(e -> metrics.completeSpanError(ctx, "restoreReview", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .map(ReviewResponseDeleteAt::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restoreReview", "Review restored successfully"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "restoreReview", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<Void>> deleteReviewPermanently(Long reviewId) {
+    public Future<Void> deleteReviewPermanently(Long reviewId) {
         var ctx = metrics.startSpan("ReviewCommandService.deleteReviewPermanently",
                 Attributes.builder().put("review.id", reviewId).build());
 
-        return repository.deleteReviewPermanently(reviewId)
-                .compose(v -> {
-                    String cacheKey = CACHE_PREFIX + reviewId;
-                    return redis.delete(cacheKey);
+        return queryRepository.findByIdTrashed(reviewId)
+                .compose(trashed -> {
+                    if (trashed == null) {
+                        return Future.<Void>failedFuture(
+                                new BadRequestException(
+                                        "Review not found or must be trashed before permanent deletion"));
+                    }
+                    return repository.deleteReviewPermanently(reviewId)
+                            .compose(v -> evictAll());
                 })
-                .map(v -> {
-                    metrics.completeSpanSuccess(ctx, "deleteReviewPermanently", "Review permanently deleted");
-                    return ApiResponse.<Void>success("Review deleted permanently", null);
-                })
-                .onFailure(e -> metrics.completeSpanError(ctx, "deleteReviewPermanently", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .onSuccess(
+                        v -> metrics.completeSpanSuccess(ctx, "deleteReviewPermanently", "Review permanently deleted"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "deleteReviewPermanently", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<Void>> restoreAllReviews() {
+    public Future<Void> restoreAllReviews() {
         var ctx = metrics.startSpan("ReviewCommandService.restoreAllReviews");
 
         return repository.restoreAllReviews()
-                .map(count -> {
-                    metrics.completeSpanSuccess(ctx, "restoreAllReviews", "All reviews restored successfully");
-                    return ApiResponse.<Void>success("All reviews restored successfully", null);
+                .compose(count -> {
+                    if (count == 0) {
+                        return Future.<Void>failedFuture(new NotFoundException("No trashed reviews found"));
+                    }
+                    return evictAll();
                 })
-                .onFailure(e -> metrics.completeSpanError(ctx, "restoreAllReviews", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore_all", "All reviews restored"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "restore_all", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<Void>> deleteAllPermanentReviews() {
+    public Future<Void> deleteAllPermanentReviews() {
         var ctx = metrics.startSpan("ReviewCommandService.deleteAllPermanentReviews");
 
         return repository.deleteAllPermanentReviews()
-                .map(count -> {
-                    metrics.completeSpanSuccess(ctx, "deleteAllPermanentReviews", "All trashed reviews deleted permanently");
-                    return ApiResponse.<Void>success("All trashed reviews deleted permanently", null);
+                .compose(count -> {
+                    if (count == 0) {
+                        return Future.<Void>failedFuture(new NotFoundException("No trashed reviews found"));
+                    }
+                    return evictAll();
                 })
-                .onFailure(e -> metrics.completeSpanError(ctx, "deleteAllPermanentReviews", e.getMessage()))
-                .recover(e -> Future.succeededFuture(ApiResponse.error(e.getMessage())));
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "delete_all_permanent",
+                        "All trashed reviews deleted permanently"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "delete_all_permanent", e.getMessage()));
     }
 }

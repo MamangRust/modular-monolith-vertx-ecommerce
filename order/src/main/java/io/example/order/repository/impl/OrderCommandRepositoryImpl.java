@@ -1,22 +1,20 @@
 package io.example.order.repository.impl;
 
-import io.example.order.model.CreateOrderRecord;
-import io.example.order.model.UpdateOrderRecord;
+import io.example.order.domain.requests.CreateOrderRecordRequest;
+import io.example.order.domain.requests.UpdateOrderRecordRequest;
 import io.example.order.model.Order;
 import io.example.order.repository.OrderCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlResult;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class OrderCommandRepositoryImpl implements OrderCommandRepository {
     private final Pool client;
 
-    public OrderCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<Order> createOrder(CreateOrderRecord req) {
+    public Future<Order> createOrder(CreateOrderRecordRequest req) {
         return client.preparedQuery("""
                 INSERT INTO orders (merchant_id, user_id, total_price, created_at, updated_at)
                 VALUES ($1, $2, $3, NOW(), NOW())
@@ -27,7 +25,7 @@ public class OrderCommandRepositoryImpl implements OrderCommandRepository {
     }
 
     @Override
-    public Future<Order> updateOrder(UpdateOrderRecord req) {
+    public Future<Order> updateOrder(UpdateOrderRecordRequest req) {
         return client.preparedQuery("""
                 UPDATE orders
                 SET total_price = $1, updated_at = NOW()
@@ -63,13 +61,13 @@ public class OrderCommandRepositoryImpl implements OrderCommandRepository {
     }
 
     @Override
-    public Future<Void> deleteOrderPermanently(Long orderId) {
+    public Future<Boolean> deleteOrderPermanently(Long orderId) {
         return client.preparedQuery("""
                 DELETE FROM orders
                 WHERE order_id = $1
                 """)
                 .execute(io.vertx.sqlclient.Tuple.of(orderId))
-                .map(rows -> null);
+                .map(rows -> rows.rowCount() > 0);
     }
 
     @Override

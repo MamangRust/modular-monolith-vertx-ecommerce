@@ -6,8 +6,8 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.exception.NotFoundException;
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.KafkaService;
 import io.example.common.service.RedisService;
@@ -17,16 +17,18 @@ import io.example.merchant.model.MerchantResponseDeleteAt;
 import io.example.merchant.repository.MerchantCommandRepository;
 import io.example.merchant.repository.MerchantQueryRepository;
 import io.example.merchant.repository.UserQueryRepository;
+import io.example.merchant.domain.requests.CreateMerchantRequest;
+import io.example.merchant.domain.requests.UpdateMerchantRequest;
+import io.example.merchant.domain.requests.UpdateMerchantStatusRequest;
 import io.example.merchant.service.MerchantCommandService;
 import io.opentelemetry.api.common.Attributes;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
-import pb.merchant.MerchantCommand.CreateMerchantRequest;
-import pb.merchant.MerchantCommand.UpdateMerchantRequest;
-import pb.merchant.MerchantCommand.UpdateMerchantStatusRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantCommandServiceImpl implements MerchantCommandService {
-  private static final Logger logger = LoggerFactory.getLogger(MerchantCommandServiceImpl.class);
+  private static final Logger log = LoggerFactory.getLogger(MerchantCommandServiceImpl.class);
 
   private final MerchantCommandRepository repo;
   private final MerchantQueryRepository queryRepo;
@@ -37,28 +39,25 @@ public class MerchantCommandServiceImpl implements MerchantCommandService {
 
   private static final String CACHE_PREFIX = "merchant:";
 
-  public MerchantCommandServiceImpl(
-      MerchantCommandRepository repo,
-      MerchantQueryRepository queryRepo,
-      UserQueryRepository userRepo,
-      RedisService redis,
-      TracingMetrics metrics,
-      KafkaService kafka) {
-    this.repo = repo;
-    this.queryRepo = queryRepo;
-    this.userRepo = userRepo;
-    this.redis = redis;
-    this.metrics = metrics;
-    this.kafka = kafka;
+  private Future<Void> evict(Integer id) {
+    return redis.delete(CACHE_PREFIX + "id:" + id).<Void>mapEmpty();
   }
 
   @Override
-  public Future<ApiResponse<MerchantResponse>> createMerchant(CreateMerchantRequest request) {
-    TracingMetrics.TracingContext ctx = metrics.startSpan("MerchantCommandService.createMerchant");
+  public Future<MerchantResponse> createMerchant(CreateMerchantRequest request) {
+    var ctx = metrics.startSpan("MerchantCommandService.createMerchant",
+        Attributes.builder().put("merchant.user_id", request.getUserId()).build());
+
     return userRepo.getUserById(request.getUserId())
         .compose(user -> {
           String apiKey = "mc_" + UUID.randomUUID().toString().replace("-", "");
-          return repo.createMerchant(request.getUserId(), request.getName(), apiKey, request.getStatus())
+          CreateMerchantRequest repoRequest = CreateMerchantRequest.builder()
+              .userId(request.getUserId())
+              .name(request.getName())
+              .apiKey(apiKey)
+              .status(request.getStatus())
+              .build();
+          return repo.createMerchant(repoRequest)
               .compose(merchant -> {
                 // Send Email via Kafka
                 String htmlBody = EmailTemplate.generateHtml(Map.of(
@@ -75,44 +74,58 @@ public class MerchantCommandServiceImpl implements MerchantCommandService {
 
                 return kafka.sendMessage("email-service-topic-merchant-create",
                     String.valueOf(merchant.getMerchantId()), emailPayload)
-                    .map(v -> ApiResponse.success("Merchant created successfully", MerchantResponse.from(merchant)))
-                    .recover(err -> {
-                      metrics.completeSpanSuccess(ctx, "createMerchant", "Success (email failed)");
-                      return Future.succeededFuture(
-                          ApiResponse.success("Merchant created successfully", MerchantResponse.from(merchant)));
-                    });
+                    .map(v -> merchant)
+                    .recover(err -> Future.succeededFuture(merchant));
               });
         })
-        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "createMerchant", "Success"))
+        .map(MerchantResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createMerchant", "Success"))
         .onFailure(e -> metrics.completeSpanError(ctx, "createMerchant", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantResponse>> updateMerchant(UpdateMerchantRequest request) {
-    TracingMetrics.TracingContext ctx = metrics.startSpan("MerchantCommandService.updateMerchant");
-    return repo.updateMerchant(request.getMerchantId(), request.getName(), request.getStatus())
+  public Future<MerchantResponse> updateMerchant(UpdateMerchantRequest request) {
+    var ctx = metrics.startSpan("MerchantCommandService.updateMerchant",
+        Attributes.builder().put("merchant.id", (long) request.getMerchantId()).build());
+
+    return repo.updateMerchant(request)
         .compose(merchant -> {
           if (merchant == null)
-            return Future.failedFuture("Merchant not found");
-          return redis.delete(CACHE_PREFIX + "id:" + merchant.getMerchantId())
-              .map(v -> ApiResponse.success("Merchant updated successfully", MerchantResponse.from(merchant)));
+            return Future.failedFuture(new NotFoundException("Merchant not found"));
+          return evict(merchant.getMerchantId()).map(merchant);
         })
-        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "updateMerchant", "Success"))
+        .map(MerchantResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "updateMerchant", "Success"))
         .onFailure(e -> metrics.completeSpanError(ctx, "updateMerchant", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantResponse>> updateStatus(UpdateMerchantStatusRequest request) {
-    TracingMetrics.TracingContext ctx = metrics.startSpan("MerchantCommandService.updateStatus");
-    return queryRepo.getMerchantById(request.getMerchantId())
+  public Future<MerchantResponse> updateStatus(UpdateMerchantStatusRequest request) {
+    var ctx = metrics.startSpan("MerchantCommandService.updateStatus",
+        Attributes.builder().put("merchant.id", (long) request.getMerchantId()).build());
+
+    return queryRepo.getMerchantById(request.getMerchantId().longValue())
         .compose(merchant -> {
           if (merchant == null)
-            return Future.failedFuture("Merchant not found");
+            return Future.failedFuture(new NotFoundException("Merchant not found"));
           return userRepo.getUserById(merchant.getUserId())
               .compose(user -> {
-                return repo.updateStatus(request.getMerchantId(), request.getStatus())
+                return repo.updateStatus(request)
                     .compose(updated -> {
                       String status = request.getStatus();
+                      Integer merchantId = request.getMerchantId();
+
+                      // Send merchant-status event to transaction module for cache invalidation
+                      JsonObject statusPayload = new JsonObject()
+                          .put("merchantId", merchantId)
+                          .put("status", status)
+                          .put("timestamp", System.currentTimeMillis());
+
+                      kafka.sendMessage("transaction-service-topic-merchant-status-event",
+                          String.valueOf(merchantId), statusPayload)
+                          .onSuccess(v -> log.info("📤 Sent merchant status event to transaction-service"))
+                          .onFailure(err -> log.error("❌ Failed to send merchant status event", err));
+
                       String subject = "";
                       String message = "";
                       String link = String.format("https://sanedge.example.com/merchant/%d/dashboard",
@@ -132,7 +145,7 @@ public class MerchantCommandServiceImpl implements MerchantCommandService {
                           message = "We're sorry to inform you that your merchant account has been <b>rejected</b>. Please contact support or review your submissions.";
                         }
                         default -> {
-                          return Future.succeededFuture(updated);
+                          return evict(updated.getMerchantId()).map(v -> updated);
                         }
                       }
 
@@ -149,172 +162,95 @@ public class MerchantCommandServiceImpl implements MerchantCommandService {
 
                       return kafka.sendMessage("email-service-topic-merchant-update-status",
                           String.valueOf(request.getMerchantId()), emailPayload)
-                          .compose(v -> redis.delete(CACHE_PREFIX + "id:" + updated.getMerchantId()))
+                          .compose(v -> evict(updated.getMerchantId()))
                           .map(v -> updated)
-                          .recover(err -> {
-                            return redis.delete(CACHE_PREFIX + "id:" + updated.getMerchantId()).map(v -> updated);
-                          });
+                          .recover(err -> evict(updated.getMerchantId()).map(v -> updated));
                     });
-              })
-              .map(updated -> ApiResponse.success("Merchant status updated successfully",
-                  MerchantResponse.from(updated)));
+              });
         })
-        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "updateStatus", "Success"))
+        .map(MerchantResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "updateStatus", "Success"))
         .onFailure(e -> metrics.completeSpanError(ctx, "updateStatus", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantResponseDeleteAt>> trashMerchant(Integer merchantId) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantCommandService.trashMerchant",
-        Attributes.builder()
-            .put("merchant.id", (long) merchantId)
-            .build());
-
-    logger.info("Trashing merchant: {}", merchantId);
+  public Future<MerchantResponseDeleteAt> trashMerchant(Long merchantId) {
+    var ctx = metrics.startSpan("MerchantCommandService.trashMerchant",
+        Attributes.builder().put("merchant.id", (long) merchantId).build());
 
     return repo.trashMerchant(merchantId)
         .compose(merchant -> {
-          if (merchant == null) {
-            return Future.failedFuture(new NotFoundException("Merchant not found with ID: " + merchantId));
-          }
-          String cacheKey = CACHE_PREFIX + "id:" + merchantId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Merchant {} cache invalidated on trash", merchantId);
-                }
-              })
-              .onFailure(err -> logger.warn("Failed to invalidate cache for trashed merchant {}: {}", merchantId,
-                  err.getMessage()))
-              .map(merchant);
+          if (merchant == null)
+            return Future.failedFuture(new NotFoundException("Merchant not found"));
+          return evict(merchantId.intValue()).map(merchant);
         })
-        .map(merchant -> {
-          metrics.completeSpanSuccess(tracingContext, "trash", "Merchant trashed successfully");
-          return ApiResponse.success("Merchant trashed successfully", MerchantResponseDeleteAt.from(merchant));
-        })
-        .recover(err -> {
-          logger.error("Failed to trash merchant: {}", merchantId, err);
-          metrics.completeSpanError(tracingContext, "trash", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.error("Failed to trash merchant: " + err.getMessage()));
-        });
+        .map(MerchantResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trashMerchant", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "trashMerchant", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantResponse>> restoreMerchant(Integer merchantId) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantCommandService.restoreMerchant",
-        Attributes.builder()
-            .put("merchant.id", (long) merchantId)
-            .build());
+  public Future<MerchantResponse> restoreMerchant(Long merchantId) {
+    var ctx = metrics.startSpan("MerchantCommandService.restoreMerchant",
+        Attributes.builder().put("merchant.id", (long) merchantId).build());
 
-    logger.info("Restoring merchant: {}", merchantId);
-
-    return repo.restoreMerchant(merchantId)
+    return queryRepo.findByTrashedId(merchantId)
         .compose(merchant -> {
-          if (merchant == null) {
-            return Future.failedFuture(new NotFoundException("Merchant not found with ID: " + merchantId));
+          if (merchant == null)
+            return Future.failedFuture(new NotFoundException("Merchant not found"));
+          return repo.restoreMerchant(merchantId);
+        })
+        .compose(merchant -> evict(merchantId.intValue()).map(merchant))
+        .map(MerchantResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restoreMerchant", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "restoreMerchant", e.getMessage()));
+  }
+
+  @Override
+  public Future<Void> deleteMerchantPermanently(Long merchantId) {
+    var ctx = metrics.startSpan("MerchantCommandService.deletePermanent",
+        Attributes.builder().put("merchant.id", (long) merchantId).build());
+
+    return queryRepo.findByTrashedId(merchantId)
+        .compose(merchant -> {
+          if (merchant == null || merchant.getDeletedAt() == null) {
+            return Future.<Void>failedFuture(
+                new BadRequestException("Merchant not found or must be trashed before permanent deletion"));
           }
-          String cacheKey = CACHE_PREFIX + "id:" + merchantId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Merchant {} cache invalidated on restore", merchantId);
-                }
-              })
-              .onFailure(err -> logger.warn("Failed to invalidate cache for restored merchant {}: {}", merchantId,
-                  err.getMessage()))
-              .map(merchant);
+          return repo.deleteMerchantPermanently(merchantId)
+              .compose(v -> evict(merchantId.intValue()));
         })
-        .map(merchant -> {
-          metrics.completeSpanSuccess(tracingContext, "restore", "Merchant restored successfully");
-          return ApiResponse.success("Merchant restored successfully", MerchantResponse.from(merchant));
-        })
-        .recover(err -> {
-          logger.error("Failed to restore merchant: {}", merchantId, err);
-          metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.error("Failed to restore merchant: " + err.getMessage()));
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deletePermanent", "Merchant deleted permanently"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "deletePermanent", err.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Void>> deleteMerchantPermanently(Integer merchantId) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantCommandService.deletePermanent",
-        Attributes.builder()
-            .put("merchant.id", (long) merchantId)
-            .build());
-
-    logger.info("Permanently deleting merchant: {}", merchantId);
-
-    return repo.deleteMerchantPermanently(merchantId)
-        .compose(v -> {
-          String cacheKey = CACHE_PREFIX + "id:" + merchantId;
-          return redis.delete(cacheKey)
-              .onSuccess(deleted -> {
-                if (deleted > 0) {
-                  logger.debug("Merchant {} cache invalidated on permanent delete", merchantId);
-                }
-              })
-              .onFailure(err -> logger.warn("Failed to invalidate cache for deleted merchant {}: {}", merchantId,
-                  err.getMessage()))
-              .map(v);
-        })
-        .map(v -> {
-          logger.info("Merchant deleted permanently: {}", merchantId);
-          metrics.completeSpanSuccess(tracingContext, "deletePermanent", "Merchant deleted permanently");
-          return ApiResponse.<Void>success("Merchant deleted permanently", null);
-        })
-        .recover(err -> {
-          logger.error("Failed to deletePermanent merchant: {}", merchantId, err);
-          metrics.completeSpanError(tracingContext, "deletePermanent", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.error("Failed to delete merchant: " + err.getMessage()));
-        });
-  }
-
-  @Override
-  public Future<ApiResponse<Void>> restoreAllMerchants() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("MerchantCommandService.restoreAll");
-
-    logger.info("Restoring all trashed merchants");
+  public Future<Void> restoreAllMerchants() {
+    var ctx = metrics.startSpan("MerchantCommandService.restoreAll");
 
     return repo.restoreAllMerchants()
-        .compose(v -> {
-          logger.info("All merchants restored successfully");
-          metrics.completeSpanSuccess(tracingContext, "restore_all", "All merchants restored");
-          return Future.succeededFuture(
-              ApiResponse.<Void>success("All merchants restored successfully"));
+        .compose(count -> {
+          if (count == 0) {
+            return Future.<Void>failedFuture(new NotFoundException("No trashed merchants found"));
+          }
+          return redis.delete(CACHE_PREFIX + "list:*").<Void>mapEmpty();
         })
-        .recover(err -> {
-          logger.error("Failed to restore all merchants", err);
-          metrics.completeSpanError(tracingContext, "restore_all", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.error("Failed to restore all merchants: " + err.getMessage()));
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore_all", "Success"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "restore_all", err.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Void>> deleteAllPermanentMerchants() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("MerchantCommandService.deleteAllPermanent");
-
-    logger.info("Permanently deleting all trashed merchants");
+  public Future<Void> deleteAllPermanentMerchants() {
+    var ctx = metrics.startSpan("MerchantCommandService.deleteAllPermanent");
 
     return repo.deleteAllPermanentMerchants()
-        .compose(v -> {
-          logger.info("All trashed merchants permanently deleted");
-          metrics.completeSpanSuccess(tracingContext, "deleteAllPermanent",
-              "All trashed merchants permanently deleted");
-          return Future.succeededFuture(
-              ApiResponse.<Void>success("All trashed merchants permanently deleted successfully"));
+        .compose(count -> {
+          if (count == 0) {
+            return Future.<Void>failedFuture(new NotFoundException("No trashed merchants found"));
+          }
+          return redis.delete(CACHE_PREFIX + "list:*").<Void>mapEmpty();
         })
-        .recover(err -> {
-          logger.error("Failed to permanently delete all merchants", err);
-          metrics.completeSpanError(tracingContext, "deleteAllPermanent", err.getMessage());
-          return Future.succeededFuture(
-              ApiResponse.error("Failed to permanently delete all merchants: " + err.getMessage()));
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "delete_all_permanent", "Success"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "delete_all_permanent", err.getMessage()));
   }
 }

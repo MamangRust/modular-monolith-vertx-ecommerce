@@ -2,264 +2,239 @@ package io.example.transaction.service.impl;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.model.ApiResponse;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
+import io.example.transaction.domain.requests.FindMonthlyMerchantStatsRequest;
+import io.example.transaction.domain.requests.FindYearlyMerchantStatsRequest;
 import io.example.transaction.model.*;
 import io.example.transaction.repository.TransactionStatsByMerchantRepository;
 import io.example.transaction.service.TransactionStatsByMerchantService;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class TransactionStatsByMerchantServiceImpl implements TransactionStatsByMerchantService {
-    private static final Logger logger = LoggerFactory.getLogger(TransactionStatsByMerchantServiceImpl.class);
-
+    private static final Logger log = LoggerFactory.getLogger(TransactionStatsByMerchantServiceImpl.class);
+    private static final ObjectMapper mapper = new ObjectMapper();
     private final TransactionStatsByMerchantRepository repo;
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
 
-    public TransactionStatsByMerchantServiceImpl(TransactionStatsByMerchantRepository repo, RedisService redis, TracingMetrics metrics) {
-        this.repo = repo;
-        this.redis = redis;
-        this.metrics = metrics;
+    @Override
+    public Future<List<TransactionMonthlyAmountSuccess>> getMonthlyAmountTransactionSuccessByMerchant(
+            FindMonthlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyAmountSuccess");
+        String cacheKey = String.format("report:merchant:monthly_amount_success:%d:%d:%d", req.getMerchantId(),
+                req.getYear(), req.getMonth());
+
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyAmountSuccess> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyAmountSuccess>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant monthly success: {}", e.getMessage());
+                        }
+                    }
+                    return repo.getMonthlyAmountTransactionSuccessByMerchant(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
+                })
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyAmountSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyAmountSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyAmountSuccess>>> getMonthlyAmountTransactionSuccessByMerchant(Integer merchantId, int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyAmountSuccess");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionYearlyAmountSuccess>> getYearlyAmountTransactionSuccessByMerchant(
+            FindYearlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyAmountSuccess");
+        String cacheKey = String.format("report:merchant:yearly_amount_success:%d:%d", req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("report:merchant:monthly_amount_success:%d:%d:%d", merchantId, year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyAmountSuccess.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_amount_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant monthly success reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyAmountSuccess> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyAmountSuccess>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant yearly success: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyAmountTransactionSuccessByMerchant(merchantId, year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_amount_success", "Success");
-                                return ApiResponse.success("Merchant monthly success reports fetched", res);
-                            });
+                    return repo.getYearlyAmountTransactionSuccessByMerchant(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant monthly success amount reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_amount_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyAmountSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyAmountSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyAmountSuccess>>> getYearlyAmountTransactionSuccessByMerchant(Integer merchantId, int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyAmountSuccess");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyAmountFailed>> getMonthlyAmountTransactionFailedByMerchant(
+            FindMonthlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyAmountFailed");
+        String cacheKey = String.format("report:merchant:monthly_amount_failed:%d:%d:%d", req.getMerchantId(),
+                req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:merchant:yearly_amount_success:%d:%d", merchantId, year);
-
-        return redis.getJsonList(cacheKey, TransactionYearlyAmountSuccess.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_amount_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant yearly success reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyAmountFailed> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyAmountFailed>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant monthly failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getYearlyAmountTransactionSuccessByMerchant(merchantId, year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_amount_success", "Success");
-                                return ApiResponse.success("Merchant yearly success reports fetched", res);
-                            });
+                    return repo.getMonthlyAmountTransactionFailedByMerchant(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant yearly success amount reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_amount_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyAmountFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyAmountFailed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyAmountFailed>>> getMonthlyAmountTransactionFailedByMerchant(Integer merchantId, int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyAmountFailed");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionYearlyAmountFailed>> getYearlyAmountTransactionFailedByMerchant(
+            FindYearlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyAmountFailed");
+        String cacheKey = String.format("report:merchant:yearly_amount_failed:%d:%d", req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("report:merchant:monthly_amount_failed:%d:%d:%d", merchantId, year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyAmountFailed.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_amount_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant monthly failed reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyAmountFailed> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyAmountFailed>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant yearly failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyAmountTransactionFailedByMerchant(merchantId, year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_amount_failed", "Success");
-                                return ApiResponse.success("Merchant monthly failed reports fetched", res);
-                            });
+                    return repo.getYearlyAmountTransactionFailedByMerchant(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant monthly failed amount reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_amount_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyAmountFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyAmountFailed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyAmountFailed>>> getYearlyAmountTransactionFailedByMerchant(Integer merchantId, int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyAmountFailed");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantSuccess(
+            FindMonthlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyMethodSuccess");
+        String cacheKey = String.format("report:merchant:monthly_method_success:%d:%d:%d", req.getMerchantId(),
+                req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:merchant:yearly_amount_failed:%d:%d", merchantId, year);
-
-        return redis.getJsonList(cacheKey, TransactionYearlyAmountFailed.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_amount_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant yearly failed reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant monthly method success: {}",
+                                    e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getYearlyAmountTransactionFailedByMerchant(merchantId, year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_amount_failed", "Success");
-                                return ApiResponse.success("Merchant yearly failed reports fetched", res);
-                            });
+                    return repo.getMonthlyTransactionMethodsByMerchantSuccess(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant yearly failed amount reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_amount_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyMethodSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyMethodSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyMethod>>> getMonthlyTransactionMethodsByMerchantSuccess(Integer merchantId, int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyTransactionMethodsSuccess");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionMonthlyMethod>> getMonthlyTransactionMethodsByMerchantFailed(
+            FindMonthlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyMethodFailed");
+        String cacheKey = String.format("report:merchant:monthly_method_failed:%d:%d:%d", req.getMerchantId(),
+                req.getYear(), req.getMonth());
 
-        String cacheKey = String.format("report:merchant:monthly_method_success:%d:%d:%d", merchantId, year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_method_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant monthly success methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionMonthlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionMonthlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant monthly method failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyTransactionMethodsByMerchantSuccess(merchantId, year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_method_success", "Success");
-                                return ApiResponse.success("Merchant monthly success methods reports fetched", res);
-                            });
+                    return repo.getMonthlyTransactionMethodsByMerchantFailed(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant monthly success methods reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_method_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyMethodFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyMethodFailed", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionMonthlyMethod>>> getMonthlyTransactionMethodsByMerchantFailed(Integer merchantId, int year, int month) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getMonthlyTransactionMethodsFailed");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantSuccess(
+            FindYearlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyMethodSuccess");
+        String cacheKey = String.format("report:merchant:yearly_method_success:%d:%d", req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("report:merchant:monthly_method_failed:%d:%d:%d", merchantId, year, month);
-
-        return redis.getJsonList(cacheKey, TransactionMonthlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_monthly_method_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant monthly failed methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant yearly method success: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getMonthlyTransactionMethodsByMerchantFailed(merchantId, year, month)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_monthly_method_failed", "Success");
-                                return ApiResponse.success("Merchant monthly failed methods reports fetched", res);
-                            });
+                    return repo.getYearlyTransactionMethodsByMerchantSuccess(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant monthly failed methods reports", err);
-                    metrics.completeSpanError(ctx, "get_monthly_method_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyMethodSuccess", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyMethodSuccess", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<List<TransactionYearlyMethod>>> getYearlyTransactionMethodsByMerchantSuccess(Integer merchantId, int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyTransactionMethodsSuccess");
-        Span span = Span.fromContext(ctx.getContext());
+    public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantFailed(
+            FindYearlyMerchantStatsRequest req) {
+        var ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyMethodFailed");
+        String cacheKey = String.format("report:merchant:yearly_method_failed:%d:%d", req.getMerchantId(),
+                req.getYear());
 
-        String cacheKey = String.format("report:merchant:yearly_method_success:%d:%d", merchantId, year);
-
-        return redis.getJsonList(cacheKey, TransactionYearlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_method_success", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant yearly success methods reports fetched (from cache)", cached));
+        return redis.get(cacheKey)
+                .compose(jsonStr -> {
+                    if (jsonStr != null && !jsonStr.isEmpty()) {
+                        try {
+                            List<TransactionYearlyMethod> typedCached = mapper.readValue(jsonStr,
+                                    new TypeReference<List<TransactionYearlyMethod>>() {
+                                    });
+                            return Future.succeededFuture(typedCached);
+                        } catch (Exception e) {
+                            log.warn("Failed to deserialize cached merchant yearly method failed: {}", e.getMessage());
+                        }
                     }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getYearlyTransactionMethodsByMerchantSuccess(merchantId, year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_method_success", "Success");
-                                return ApiResponse.success("Merchant yearly success methods reports fetched", res);
-                            });
+                    return repo.getYearlyTransactionMethodsByMerchantFailed(req)
+                            .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
-                .recover(err -> {
-                    logger.error("Failed to get merchant yearly success methods reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_method_success", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
-    }
-
-    @Override
-    public Future<ApiResponse<List<TransactionYearlyMethod>>> getYearlyTransactionMethodsByMerchantFailed(Integer merchantId, int year) {
-        TracingMetrics.TracingContext ctx = metrics.startSpan("TransactionStatsByMerchantService.getYearlyTransactionMethodsFailed");
-        Span span = Span.fromContext(ctx.getContext());
-
-        String cacheKey = String.format("report:merchant:yearly_method_failed:%d:%d", merchantId, year);
-
-        return redis.getJsonList(cacheKey, TransactionYearlyMethod.class)
-                .compose(cached -> {
-                    if (cached != null && !cached.isEmpty()) {
-                        span.setAttribute("cache.hit", true);
-                        metrics.completeSpanSuccess(ctx, "get_yearly_method_failed", "Success (from cache)");
-                        return Future.succeededFuture(ApiResponse.success("Merchant yearly failed methods reports fetched (from cache)", cached));
-                    }
-                    span.setAttribute("cache.hit", false);
-                    return repo.getYearlyTransactionMethodsByMerchantFailed(merchantId, year)
-                            .compose(res -> redis.setJsonList(cacheKey, res, CACHE_TTL).map(res))
-                            .map(res -> {
-                                metrics.completeSpanSuccess(ctx, "get_yearly_method_failed", "Success");
-                                return ApiResponse.success("Merchant yearly failed methods reports fetched", res);
-                            });
-                })
-                .recover(err -> {
-                    logger.error("Failed to get merchant yearly failed methods reports", err);
-                    metrics.completeSpanError(ctx, "get_yearly_method_failed", err.getMessage());
-                    return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-                });
+                .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getYearlyMethodFailed", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "getYearlyMethodFailed", e.getMessage()));
     }
 }

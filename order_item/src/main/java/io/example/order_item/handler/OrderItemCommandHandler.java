@@ -1,10 +1,13 @@
 package io.example.order_item.handler;
 
 import com.google.protobuf.Empty;
+
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.order_item.domain.requests.CreateOrderItemRecordRequest;
+import io.example.order_item.domain.requests.UpdateOrderItemRecordRequest;
 import io.example.order_item.service.OrderItemCommandService;
 import io.vertx.core.Future;
-import pb.order_item.OrderItemCommand.CreateOrderItemRecordRequest;
-import pb.order_item.OrderItemCommand.UpdateOrderItemRecordRequest;
+import lombok.RequiredArgsConstructor;
 import pb.order_item.OrderItemCommand.CalculateTotalPriceRequest;
 import pb.order_item.OrderItemCommand.CalculateTotalPriceResponse;
 import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
@@ -13,112 +16,123 @@ import pb.order_item.OrderItemCommon.ApiResponseOrderItemDelete;
 import pb.order_item.OrderItemCommon.ApiResponseOrderItemAll;
 import pb.order_item.VertxOrderItemCommandServiceGrpcServer.OrderItemCommandServiceApi;
 
+@RequiredArgsConstructor
 public class OrderItemCommandHandler implements OrderItemCommandServiceApi {
     private final OrderItemCommandService service;
 
-    public OrderItemCommandHandler(OrderItemCommandService service) {
-        this.service = service;
+    @Override
+    public Future<ApiResponseOrderItem> createOrderItem(
+            pb.order_item.OrderItemCommand.CreateOrderItemRecordRequest req) {
+        var domainReq = CreateOrderItemRecordRequest.builder()
+                .orderId(req.getOrderId())
+                .productId(req.getProductId())
+                .quantity(req.getQuantity())
+                .price(req.getPrice())
+                .build();
+        return service.create(domainReq)
+                .map(data -> ApiResponseOrderItem.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .setData(ProtoConverter.fromModel(data))
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
-    public Future<ApiResponseOrderItem> createOrderItem(CreateOrderItemRecordRequest req) {
-        return service.create(req)
-                .map(resp -> {
-                    ApiResponseOrderItem.Builder builder = ApiResponseOrderItem.newBuilder()
-                            .setStatus(resp.status())
-                            .setMessage(resp.message());
-                    if (resp.data() != null) {
-                        builder.setData(ProtoConverter.fromModel(resp.data()));
-                    }
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponseOrderItem> updateOrderItem(UpdateOrderItemRecordRequest req) {
-        return service.update(req)
-                .map(resp -> {
-                    ApiResponseOrderItem.Builder builder = ApiResponseOrderItem.newBuilder()
-                            .setStatus(resp.status())
-                            .setMessage(resp.message());
-                    if (resp.data() != null) {
-                        builder.setData(ProtoConverter.fromModel(resp.data()));
-                    }
-                    return builder.build();
-                });
+    public Future<ApiResponseOrderItem> updateOrderItem(
+            pb.order_item.OrderItemCommand.UpdateOrderItemRecordRequest req) {
+        var domainReq = UpdateOrderItemRecordRequest.builder()
+                .orderItemId(req.getOrderItemId())
+                .quantity(req.getQuantity())
+                .price(req.getPrice())
+                .build();
+        return service.update(domainReq)
+                .map(data -> ApiResponseOrderItem.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .setData(ProtoConverter.fromModel(data))
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<ApiResponseOrderItem> trashOrderItem(FindByIdOrderItemRequest req) {
-        return service.trash(req.getId())
-                .map(resp -> {
+        return service.trash((long) req.getId())
+                .map(data -> {
                     ApiResponseOrderItem.Builder builder = ApiResponseOrderItem.newBuilder()
-                            .setStatus(resp.status())
-                            .setMessage(resp.message());
-                    if (resp.data() != null && !resp.data().isEmpty()) {
-                        builder.setData(ProtoConverter.fromModelDeleteAtToResponse(resp.data().get(0)));
+                            .setStatus("success")
+                            .setMessage("OK");
+                    if (data != null && !data.isEmpty()) {
+                        builder.setData(ProtoConverter.fromModelDeleteAtToResponse(data.get(0)));
                     }
                     return builder.build();
-                });
+                })
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<ApiResponseOrderItem> restoreOrderItem(FindByIdOrderItemRequest req) {
-        return service.restore(req.getId())
-                .map(resp -> {
+        return service.restore((long) req.getId())
+                .map(data -> {
                     ApiResponseOrderItem.Builder builder = ApiResponseOrderItem.newBuilder()
-                            .setStatus(resp.status())
-                            .setMessage(resp.message());
-                    if (resp.data() != null && !resp.data().isEmpty()) {
-                        builder.setData(ProtoConverter.fromModelDeleteAtToResponse(resp.data().get(0)));
+                            .setStatus("success")
+                            .setMessage("OK");
+                    if (data != null && !data.isEmpty()) {
+                        builder.setData(ProtoConverter.fromModelDeleteAtToResponse(data.get(0)));
                     }
                     return builder.build();
-                });
+                })
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<ApiResponseOrderItemDelete> deleteOrderItemPermanent(FindByIdOrderItemRequest req) {
-        return service.deletePermanent(req.getId())
-                .map(resp -> ApiResponseOrderItemDelete.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .build());
+        return service.deletePermanent((long) req.getId())
+                .map(v -> ApiResponseOrderItemDelete.newBuilder()
+                        .setStatus("success")
+                        .setMessage("Order item deleted permanently")
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<ApiResponseOrderItemAll> restoreAllOrdersItem(Empty req) {
         return service.restoreAll()
-                .map(resp -> ApiResponseOrderItemAll.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .build());
+                .map(v -> ApiResponseOrderItemAll.newBuilder()
+                        .setStatus("success")
+                        .setMessage("All order items restored successfully")
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<ApiResponseOrderItemAll> deleteAllPermanentOrdersItem(Empty req) {
         return service.deleteAll()
-                .map(resp -> ApiResponseOrderItemAll.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .build());
+                .map(v -> ApiResponseOrderItemAll.newBuilder()
+                        .setStatus("success")
+                        .setMessage("All order items permanently deleted")
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<ApiResponseOrderItemDelete> deleteOrderItemByOrderPermanent(FindByIdOrderItemRequest req) {
-        return service.deleteByOrderPermanent(req.getId())
-                .map(resp -> ApiResponseOrderItemDelete.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .build());
+        return service.deleteByOrderPermanent((long) req.getId())
+                .map(v -> ApiResponseOrderItemDelete.newBuilder()
+                        .setStatus("success")
+                        .setMessage("Order items deleted permanently")
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 
     @Override
     public Future<CalculateTotalPriceResponse> calculateTotalPrice(CalculateTotalPriceRequest req) {
-        return service.calculateTotalPrice(req.getOrderId())
-                .map(resp -> CalculateTotalPriceResponse.newBuilder()
-                        .setStatus(resp.status())
-                        .setMessage(resp.message())
-                        .setTotalPrice(resp.data() != null ? resp.data() : 0)
-                        .build());
+        return service.calculateTotalPrice((long) req.getOrderId())
+                .map(data -> CalculateTotalPriceResponse.newBuilder()
+                        .setStatus("success")
+                        .setMessage("OK")
+                        .setTotalPrice(data != null ? data.intValue() : 0)
+                        .build())
+                .recover(GrpcExceptionMapper::toFailedFuture);
     }
 }

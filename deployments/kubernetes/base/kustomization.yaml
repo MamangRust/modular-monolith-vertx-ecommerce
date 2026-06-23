@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce
+
+resources:
+- apigateway/
+- auth/
+- banner/
+- cart/
+- category/
+- common/
+- db-migration/
+- email/
+- kafka/
+- merchant/
+- merchant_award/
+- merchant_business/
+- merchant_detail/
+- merchant_policy/
+- nginx/
+- observability/
+- order/
+- order_item/
+- postgres/
+- product/
+- redis/
+- review/
+- review_detail/
+- role/
+- shipping_address/
+- slider/
+- transaction/
+- user/

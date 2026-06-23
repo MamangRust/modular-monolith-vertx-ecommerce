@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.common.domain.PagedResult;
-import io.example.shipping_address.model.FindAllShippingAddress;
+import io.example.shipping_address.domain.requests.FindAllShippingAddress;
 import io.example.shipping_address.model.ShippingAddress;
 import io.example.shipping_address.repository.ShippingAddressQueryRepository;
 import io.vertx.core.Future;
@@ -12,13 +12,11 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ShippingAddressQueryRepositoryImpl implements ShippingAddressQueryRepository {
     private final Pool client;
-
-    public ShippingAddressQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<PagedResult<ShippingAddress>> getShippingAddresses(FindAllShippingAddress req) {
@@ -137,7 +135,7 @@ public class ShippingAddressQueryRepositoryImpl implements ShippingAddressQueryR
     }
 
     @Override
-    public Future<ShippingAddress> getShippingByID(Integer shippingAddressId) {
+    public Future<ShippingAddress> getShippingByID(Long shippingAddressId) {
         return client
                 .preparedQuery("""
                         SELECT
@@ -162,7 +160,7 @@ public class ShippingAddressQueryRepositoryImpl implements ShippingAddressQueryR
     }
 
     @Override
-    public Future<ShippingAddress> getShippingAddressByOrderID(Integer orderId) {
+    public Future<ShippingAddress> getShippingAddressByOrderID(Long orderId) {
         return client
                 .preparedQuery("""
                         SELECT
@@ -183,6 +181,32 @@ public class ShippingAddressQueryRepositoryImpl implements ShippingAddressQueryR
                             AND deleted_at IS NULL
                         """)
                 .execute(Tuple.of(orderId))
+                .map(this::mapSingleOrNull);
+    }
+
+    @Override
+    public Future<ShippingAddress> findByTrashedId(Long shippingAddressId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            shipping_address_id,
+                            order_id,
+                            alamat,
+                            provinsi,
+                            negara,
+                            kota,
+                            courier,
+                            shipping_method,
+                            shipping_cost,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM shipping_addresses
+                        WHERE
+                            shipping_address_id = $1
+                            AND deleted_at IS NOT NULL
+                        """)
+                .execute(Tuple.of(shippingAddressId))
                 .map(this::mapSingleOrNull);
     }
 

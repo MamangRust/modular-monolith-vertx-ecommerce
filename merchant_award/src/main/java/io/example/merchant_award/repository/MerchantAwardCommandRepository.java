@@ -1,9 +1,9 @@
 package io.example.merchant_award.repository;
 
+import io.example.merchant_award.domain.requests.CreateMerchantAwardRequest;
+import io.example.merchant_award.domain.requests.UpdateMerchantAwardRequest;
 import io.example.merchant_award.model.MerchantAward;
 import io.vertx.core.Future;
-import pb.merchant_award.MerchantAwardCommand.CreateMerchantAwardRequest;
-import pb.merchant_award.MerchantAwardCommand.UpdateMerchantAwardRequest;
 
 public interface MerchantAwardCommandRepository {
   Future<MerchantAward> create(CreateMerchantAwardRequest req);

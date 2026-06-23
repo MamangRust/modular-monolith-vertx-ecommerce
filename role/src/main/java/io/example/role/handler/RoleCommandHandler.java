@@ -1,98 +1,102 @@
 package io.example.role.handler;
 
 import com.google.protobuf.Empty;
+
+import io.example.common.grpc.GrpcExceptionMapper;
 import io.example.role.service.RoleCommandService;
 import io.vertx.core.Future;
-import pb.RoleCommon.*;
-import pb.RoleCommand.*;
+import lombok.RequiredArgsConstructor;
+import pb.RoleCommand.CreateRoleRequest;
+import pb.RoleCommand.UpdateRoleRequest;
+import pb.RoleCommon.ApiResponseRole;
+import pb.RoleCommon.ApiResponseRoleAll;
+import pb.RoleCommon.ApiResponseRoleDelete;
+import pb.RoleCommon.FindByIdRoleRequest;
 
+@RequiredArgsConstructor
 public class RoleCommandHandler implements pb.VertxRoleCommandServiceGrpcServer.RoleCommandServiceApi {
   private final RoleCommandService service;
 
-  public RoleCommandHandler(RoleCommandService service) {
-    this.service = service;
-  }
-
   @Override
   public Future<ApiResponseRole> createRole(CreateRoleRequest req) {
-    return service.createRole(req)
-        .map(resp -> {
-          var builder = ApiResponseRole.newBuilder()
-              .setStatus(resp.status())
-              .setMessage(resp.message());
-          if (resp.data() != null) {
-            builder.setData(ProtoConverter.fromRoleResponse(resp.data()));
-          }
-          return builder.build();
-        });
+    var reqDomain = io.example.role.domain.requests.CreateRoleRequest.builder()
+        .name(req.getName())
+        .build();
+
+    return service.createRole(reqDomain)
+        .map(data -> ApiResponseRole.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .setData(ProtoConverter.fromRoleResponse(data))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseRole> updateRole(UpdateRoleRequest req) {
-    return service.updateRole(req)
-        .map(resp -> {
-          var builder = ApiResponseRole.newBuilder()
-              .setStatus(resp.status())
-              .setMessage(resp.message());
-          if (resp.data() != null) {
-            builder.setData(ProtoConverter.fromRoleResponse(resp.data()));
-          }
-          return builder.build();
-        });
+    var reqDomain = io.example.role.domain.requests.UpdateRoleRequest.builder()
+        .roleId(req.getId())
+        .name(req.getName())
+        .build();
+
+    return service.updateRole(reqDomain)
+        .map(data -> ApiResponseRole.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .setData(ProtoConverter.fromRoleResponse(data))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseRole> trashedRole(FindByIdRoleRequest req) {
-    return service.trashRole(req.getRoleId())
-        .map(resp -> {
-          var builder = ApiResponseRole.newBuilder()
-              .setStatus(resp.status())
-              .setMessage(resp.message());
-          if (resp.data() != null) {
-            builder.setData(ProtoConverter.fromRoleResponseDeleteAtToResponse(resp.data()));
-          }
-          return builder.build();
-        });
+    return service.trashRole((long) req.getRoleId())
+        .map(data -> ApiResponseRole.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .setData(ProtoConverter.fromRoleResponseDeleteAtToResponse(data))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseRole> restoreRole(FindByIdRoleRequest req) {
-    return service.restoreRole(req.getRoleId())
-        .map(resp -> {
-          var builder = ApiResponseRole.newBuilder()
-              .setStatus(resp.status())
-              .setMessage(resp.message());
-          if (resp.data() != null) {
-            builder.setData(ProtoConverter.fromRoleResponseDeleteAtToResponse(resp.data()));
-          }
-          return builder.build();
-        });
+    return service.restoreRole((long) req.getRoleId())
+        .map(data -> ApiResponseRole.newBuilder()
+            .setStatus("success")
+            .setMessage("OK")
+            .setData(ProtoConverter.fromRoleResponseDeleteAtToResponse(data))
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseRoleDelete> deleteRolePermanent(FindByIdRoleRequest req) {
-    return service.deletePermanent(req.getRoleId())
-        .map(resp -> ApiResponseRoleDelete.newBuilder()
-            .setStatus(resp.status())
-            .setMessage(resp.message())
-            .build());
+    return service.deletePermanent((long) req.getRoleId())
+        .map(v -> ApiResponseRoleDelete.newBuilder()
+            .setStatus("success")
+            .setMessage("Role deleted permanently")
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseRoleAll> restoreAllRole(Empty req) {
     return service.restoreAllRoles()
-        .map(resp -> ApiResponseRoleAll.newBuilder()
-            .setStatus(resp.status())
-            .setMessage(resp.message())
-            .build());
+        .map(v -> ApiResponseRoleAll.newBuilder()
+            .setStatus("success")
+            .setMessage("All roles restored successfully")
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 
   @Override
   public Future<ApiResponseRoleAll> deleteAllRolePermanent(Empty req) {
     return service.deleteAllPermanentRoles()
-        .map(resp -> ApiResponseRoleAll.newBuilder()
-            .setStatus(resp.status())
-            .setMessage(resp.message())
-            .build());
+        .map(v -> ApiResponseRoleAll.newBuilder()
+            .setStatus("success")
+            .setMessage("All roles permanently deleted")
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture);
   }
 }

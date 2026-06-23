@@ -12,16 +12,21 @@ import io.example.merchant_detail.repository.MerchantDetailCommandRepository;
 import io.example.merchant_detail.repository.MerchantDetailQueryRepository;
 import io.example.merchant_detail.repository.MerchantQueryRepository;
 import io.example.merchant_detail.repository.MerchantSocialLinkCommandRepository;
+import io.example.merchant_detail.repository.MerchantSocialLinkeQueryRepository;
 import io.example.merchant_detail.repository.impl.MerchantDetailCommandRepositoryImpl;
 import io.example.merchant_detail.repository.impl.MerchantDetailQueryRepositoryImpl;
 import io.example.merchant_detail.repository.impl.MerchantQueryRepositoryImpl;
 import io.example.merchant_detail.repository.impl.MerchantSocialLinkCommandRepositoryImpl;
+import io.example.merchant_detail.repository.impl.MerchantSocialLinkQueryRepository;
 import io.example.merchant_detail.service.MerchantDetailCommandService;
 import io.example.merchant_detail.service.MerchantDetailQueryService;
 import io.example.merchant_detail.service.MerchantSocialLinkCommandService;
 import io.example.merchant_detail.service.impl.MerchantDetailCommandServiceImpl;
 import io.example.merchant_detail.service.impl.MerchantDetailQueryServiceImpl;
 import io.example.merchant_detail.service.impl.MerchantSocialLinkCommandServiceImpl;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -44,17 +49,18 @@ public class MerchantDetailVerticle extends AbstractVerticle {
 
   private TelemetryConfig telemetryConfig;
   private GrpcClient grpcClient;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5432)
-            .put("database", "vertxdb")
-            .put("user", "vertx")
-            .put("password", "vertx")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
+            .put("user", "DRAGON")
+            .put("password", "DRAGON")
             .put("pool_size", 5))
         .put("grpc_port", 50058)
         .put("service.name", "merchant-detail-service");
@@ -99,15 +105,19 @@ public class MerchantDetailVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
     // 3. Initialize unified gRPC Client pool & clients
     grpcClient = GrpcClient.client(vertx);
     SocketAddress addrMerchant = resolveGrpcAddress("MERCHANT", "merchant", 50055);
     var merchantQueryClient = new pb.merchant.VertxMerchantQueryServiceGrpcClient(grpcClient, addrMerchant);
 
-    MerchantDetailQueryRepository queryRepo = new MerchantDetailQueryRepositoryImpl(pool);
-    MerchantDetailCommandRepository cmdRepo = new MerchantDetailCommandRepositoryImpl(pool);
-    MerchantSocialLinkCommandRepository socialRepo = new MerchantSocialLinkCommandRepositoryImpl(pool);
+    MerchantDetailQueryRepository queryRepo = new MerchantDetailQueryRepositoryImpl(chaosPool);
+    MerchantDetailCommandRepository cmdRepo = new MerchantDetailCommandRepositoryImpl(chaosPool);
+    MerchantSocialLinkCommandRepository socialRepo = new MerchantSocialLinkCommandRepositoryImpl(chaosPool);
+    MerchantSocialLinkeQueryRepository socialQueryRepo = new MerchantSocialLinkQueryRepository(chaosPool);
     MerchantQueryRepository merchantRepo = new MerchantQueryRepositoryImpl(merchantQueryClient);
 
     // 4. Initialize Caching
@@ -115,9 +125,14 @@ public class MerchantDetailVerticle extends AbstractVerticle {
     RedisService redisService = new RedisService(redisAPI, openTelemetry);
 
     // 5. Initialize Services
-    MerchantDetailQueryService queryService = new MerchantDetailQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    MerchantDetailCommandService cmdService = new MerchantDetailCommandServiceImpl(cmdRepo, merchantRepo, redisService, tracingMetrics);
-    MerchantSocialLinkCommandService socialService = new MerchantSocialLinkCommandServiceImpl(socialRepo, redisService, tracingMetrics);
+    MerchantDetailQueryService queryService = new MerchantDetailQueryServiceImpl(queryRepo, redisService,
+        tracingMetrics);
+    MerchantDetailCommandService cmdService = new MerchantDetailCommandServiceImpl(cmdRepo, queryRepo, merchantRepo,
+        redisService, tracingMetrics);
+    MerchantSocialLinkCommandService socialService = new MerchantSocialLinkCommandServiceImpl(socialRepo,
+        socialQueryRepo,
+        redisService,
+        tracingMetrics);
 
     // 6. Initialize Handlers
     var queryHandler = new MerchantDetailQueryHandler(queryService);
@@ -178,7 +193,7 @@ public class MerchantDetailVerticle extends AbstractVerticle {
     socialHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

@@ -1,84 +1,111 @@
 package io.example.apigateway.handler;
 
-import io.example.apigateway.utils.ProtoMapper;
+import static io.example.apigateway.utils.GrpcGatewayUtils.sendResponse;
+
+import io.example.apigateway.utils.GrpcGatewayUtils;
+import io.example.common.exception.api.BadRequestException;
+import io.example.common.exception.api.UnauthorizedException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
+import lombok.RequiredArgsConstructor;
 import pb.Auth;
 import pb.VertxAuthServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class AuthProxyHandler {
   private final VertxAuthServiceGrpcClient client;
 
-  public AuthProxyHandler(VertxAuthServiceGrpcClient client) {
-    this.client = client;
-  }
-
   public void register(RoutingContext ctx) {
     JsonObject body = ctx.body().asJsonObject();
+
+    String email = GrpcGatewayUtils.getJsonString(body, "email", "");
+    String password = GrpcGatewayUtils.getJsonString(body, "password", "");
+
+    if (email.isBlank() || password.isBlank()) {
+      ctx.fail(new BadRequestException("Email and Password are required"));
+      return;
+    }
+
     var req = Auth.RegisterRequest.newBuilder()
-        .setFirstname(body.getString("firstname", ""))
-        .setLastname(body.getString("lastname", ""))
-        .setEmail(body.getString("email", ""))
-        .setPassword(body.getString("password", ""))
+        .setFirstname(GrpcGatewayUtils.getJsonString(body, "firstname", ""))
+        .setLastname(GrpcGatewayUtils.getJsonString(body, "lastname", ""))
+        .setEmail(email)
+        .setPassword(password)
         .build();
 
     client.registerUser(req)
         .onSuccess(resp -> sendResponse(ctx, resp, 201))
-        .onFailure(err -> ctx.fail(err));
+        .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
   }
 
   public void login(RoutingContext ctx) {
     JsonObject body = ctx.body().asJsonObject();
+
+    String email = GrpcGatewayUtils.getJsonString(body, "email", "");
+    String password = GrpcGatewayUtils.getJsonString(body, "password", "");
+
+    if (email.isBlank() || password.isBlank()) {
+      ctx.fail(new BadRequestException("Email and Password are required"));
+      return;
+    }
+
     var req = Auth.LoginRequest.newBuilder()
-        .setEmail(body.getString("email", ""))
-        .setPassword(body.getString("password", ""))
+        .setEmail(email)
+        .setPassword(password)
         .build();
 
     client.loginUser(req)
         .onSuccess(resp -> sendResponse(ctx, resp, 200))
-        .onFailure(err -> ctx.fail(err));
+        .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
   }
 
   public void refreshToken(RoutingContext ctx) {
     JsonObject body = ctx.body().asJsonObject();
+    String refreshToken = GrpcGatewayUtils.getJsonString(body, "refresh_token", "");
+
+    if (refreshToken.isBlank()) {
+      ctx.fail(new BadRequestException("Refresh Token is required"));
+      return;
+    }
+
     var req = Auth.RefreshTokenRequest.newBuilder()
-        .setRefreshToken(body.getString("refresh_token", ""))
+        .setRefreshToken(refreshToken)
         .build();
 
     client.refreshToken(req)
         .onSuccess(resp -> sendResponse(ctx, resp, 200))
-        .onFailure(err -> ctx.fail(err));
+        .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
   }
 
   public void getMe(RoutingContext ctx) {
     if (ctx.user() == null || ctx.user().principal() == null) {
-      ctx.response().setStatusCode(401).end("Unauthorized");
+      ctx.fail(new UnauthorizedException("Unauthorized"));
       return;
     }
+
     int userId = ctx.user().principal().getInteger("userId", 0);
+    if (userId == 0) {
+      ctx.fail(new UnauthorizedException("Invalid user token payload"));
+      return;
+    }
+
     var req = Auth.GetMeRequest.newBuilder()
         .setUserId(userId)
         .build();
 
     client.getMe(req)
         .onSuccess(resp -> sendResponse(ctx, resp, 200))
-        .onFailure(err -> ctx.fail(err));
+        .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
   }
 
   public void logout(RoutingContext ctx) {
-    // Traditional logout does local storage clear. On server side it can clear session if stateful.
-    // Proto doesn't strictly define explicit logout rpc, but let's response 200 OK immediately!
-    ctx.response()
-        .putHeader("Content-Type", "application/json")
-        .end(new JsonObject().put("status", 200).put("message", "Successfully logged out").encode());
-  }
+    if (ctx.user() != null) {
+      ctx.user().authorizations().clear();
+    }
 
-  private void sendResponse(RoutingContext ctx, com.google.protobuf.MessageOrBuilder proto, int defaultStatus) {
-    JsonObject json = ProtoMapper.toJson(proto);
-    int status = json.getInteger("status", defaultStatus);
     ctx.response()
-        .setStatusCode(status == 0 ? defaultStatus : status)
+        .setStatusCode(200)
         .putHeader("Content-Type", "application/json")
-        .end(json.encode());
+        .end(new JsonObject().put("message", "Successfully logged out").encode());
   }
 }

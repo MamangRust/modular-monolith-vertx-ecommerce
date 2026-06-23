@@ -1,126 +1,90 @@
 package io.example.slider.handler;
 
-import io.example.slider.model.FindAllSlider;
+import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.slider.domain.requests.FindAllSlider;
 import io.example.slider.service.SliderQueryService;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.slider.SliderCommon.ApiResponsePaginationSlider;
 import pb.slider.SliderCommon.ApiResponsePaginationSliderDeleteAt;
 import pb.slider.SliderCommon.ApiResponseSlider;
 import pb.slider.SliderCommon.FindByIdSliderRequest;
 
+@RequiredArgsConstructor
 public class SliderQueryHandler implements pb.slider.VertxSliderQueryServiceGrpcServer.SliderQueryServiceApi {
-    private final SliderQueryService service;
+        private final SliderQueryService service;
 
-    public SliderQueryHandler(SliderQueryService service) {
-        this.service = service;
-    }
+        private FindAllSlider toDomainReq(pb.slider.SliderQuery.FindAllSliderRequest req) {
+                return FindAllSlider.builder()
+                                .page(req.getPage())
+                                .pageSize(req.getPageSize())
+                                .search(req.getSearch())
+                                .build();
+        }
 
-    @Override
-    public Future<ApiResponsePaginationSlider> findAll(pb.slider.SliderQuery.FindAllSliderRequest req) {
-        FindAllSlider reqDto = FindAllSlider.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
+        private pb.Api.PaginationMeta toMeta(int totalRecords, int page, int pageSize) {
+                int currentPage = page > 0 ? page : 1;
+                int size = pageSize > 0 ? pageSize : 10;
+                int totalPages = size > 0 ? (int) Math.ceil((double) totalRecords / size) : 0;
+                return pb.Api.PaginationMeta.newBuilder()
+                                .setCurrentPage(currentPage)
+                                .setPageSize(size)
+                                .setTotalPages(totalPages)
+                                .setTotalRecords(totalRecords)
+                                .build();
+        }
 
-        return service.getAllSliders(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationSlider.Builder builder = ApiResponsePaginationSlider.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
+        @Override
+        public Future<ApiResponsePaginationSlider> findAll(pb.slider.SliderQuery.FindAllSliderRequest req) {
+                FindAllSlider domainReq = toDomainReq(req);
+                return service.getAllSliders(domainReq)
+                                .map(res -> ApiResponsePaginationSlider.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream().map(ProtoConverter::toProtoResponse)
+                                                                .toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toProtoResponse).toList());
-                    }
+        @Override
+        public Future<ApiResponseSlider> findById(FindByIdSliderRequest req) {
+                return service.getSliderById((long) req.getId())
+                                .map(data -> ApiResponseSlider.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .setData(ProtoConverter.toProtoResponse(data))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
+        @Override
+        public Future<ApiResponsePaginationSliderDeleteAt> findByActive(
+                        pb.slider.SliderQuery.FindAllSliderRequest req) {
+                FindAllSlider domainReq = toDomainReq(req);
+                return service.getActiveSliders(domainReq)
+                                .map(res -> ApiResponsePaginationSliderDeleteAt.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::toProtoResponseDeleteAt).toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponseSlider> findById(FindByIdSliderRequest req) {
-        return service.getSliderById((long) req.getId())
-                .map(res -> {
-                    ApiResponseSlider.Builder builder = ApiResponseSlider.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.setData(ProtoConverter.toProtoResponse(res.data()));
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationSliderDeleteAt> findByTrashed(pb.slider.SliderQuery.FindAllSliderRequest req) {
-        FindAllSlider reqDto = FindAllSlider.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getTrashedSliders(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationSliderDeleteAt.Builder builder = ApiResponsePaginationSliderDeleteAt.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toProtoResponseDeleteAt).toList());
-                    }
-
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
-
-    @Override
-    public Future<ApiResponsePaginationSliderDeleteAt> findByActive(pb.slider.SliderQuery.FindAllSliderRequest req) {
-        FindAllSlider reqDto = FindAllSlider.builder()
-                .page(req.getPage())
-                .pageSize(req.getPageSize())
-                .search(req.getSearch())
-                .build();
-
-        return service.getActiveSliders(reqDto)
-                .map(res -> {
-                    ApiResponsePaginationSliderDeleteAt.Builder builder = ApiResponsePaginationSliderDeleteAt.newBuilder()
-                            .setStatus(res.status() != null ? res.status() : "error")
-                            .setMessage(res.message() != null ? res.message() : "");
-
-                    if (res.data() != null) {
-                        builder.addAllData(res.data().stream().map(ProtoConverter::toProtoResponseDeleteAt).toList());
-                    }
-
-                    if (res.pagination() != null) {
-                        builder.setPagination(pb.Api.PaginationMeta.newBuilder()
-                                .setCurrentPage(res.pagination().currentPage())
-                                .setPageSize(res.pagination().pageSize())
-                                .setTotalPages(res.pagination().totalPages())
-                                .setTotalRecords(res.pagination().totalRecords())
-                                .build());
-                    }
-
-                    return builder.build();
-                });
-    }
+        @Override
+        public Future<ApiResponsePaginationSliderDeleteAt> findByTrashed(
+                        pb.slider.SliderQuery.FindAllSliderRequest req) {
+                FindAllSlider domainReq = toDomainReq(req);
+                return service.getTrashedSliders(domainReq)
+                                .map(res -> ApiResponsePaginationSliderDeleteAt.newBuilder()
+                                                .setStatus("success").setMessage("OK")
+                                                .addAllData(res.getData().stream()
+                                                                .map(ProtoConverter::toProtoResponseDeleteAt).toList())
+                                                .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(),
+                                                                domainReq.getPageSize()))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
 }

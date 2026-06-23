@@ -2,123 +2,154 @@ package io.example.merchant_detail.service.impl;
 
 import java.time.Duration;
 import java.util.List;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.example.common.domain.PagedResult;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
+import io.example.merchant_detail.domain.requests.FindAllMerchantDetailRequest;
 import io.example.merchant_detail.model.MerchantDetailResponse;
 import io.example.merchant_detail.model.MerchantDetailResponseDeleteAt;
 import io.example.merchant_detail.model.MerchantDetailsRelation;
 import io.example.merchant_detail.repository.MerchantDetailQueryRepository;
 import io.example.merchant_detail.service.MerchantDetailQueryService;
+import io.opentelemetry.api.common.Attributes;
 import io.vertx.core.Future;
-import io.vertx.core.json.Json;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantDetailQueryServiceImpl implements MerchantDetailQueryService {
   private static final Logger log = LoggerFactory.getLogger(MerchantDetailQueryServiceImpl.class);
+  private static final ObjectMapper mapper = new ObjectMapper();
 
   private final MerchantDetailQueryRepository repository;
-  private final RedisService redisService;
-  private final TracingMetrics tracingMetrics;
+  private final RedisService redis;
+  private final TracingMetrics metrics;
 
-  public MerchantDetailQueryServiceImpl(
-      MerchantDetailQueryRepository repository,
-      RedisService redisService,
-      TracingMetrics tracingMetrics) {
-    this.repository = repository;
-    this.redisService = redisService;
-    this.tracingMetrics = tracingMetrics;
+  private static final String CACHE_PREFIX = "merchant_detail:";
+  private static final Duration CACHE_TTL = Duration.ofMinutes(60);
+
+  private PagedResult<MerchantDetailResponse> mapPagination(PagedResult<MerchantDetailsRelation> res) {
+    List<MerchantDetailResponse> data = res.getData().stream().map(MerchantDetailResponse::from).toList();
+    return new PagedResult<>(data, res.getTotalRecords());
+  }
+
+  private PagedResult<MerchantDetailResponseDeleteAt> mapPaginationDeleteAt(PagedResult<MerchantDetailsRelation> res) {
+    List<MerchantDetailResponseDeleteAt> data = res.getData().stream().map(MerchantDetailResponseDeleteAt::from)
+        .toList();
+    return new PagedResult<>(data, res.getTotalRecords());
+  }
+
+  private String buildListCacheKey(String scope, FindAllMerchantDetailRequest req) {
+    return CACHE_PREFIX + "list:" + scope + ":"
+        + (req.getSearch() != null ? req.getSearch() : "")
+        + ":" + req.getPage() + ":" + req.getPageSize();
   }
 
   @Override
-  public Future<PagedResult<MerchantDetailResponse>> getMerchantDetails(String search, int page, int pageSize) {
-    var ctx = tracingMetrics.startSpan("MerchantDetailQueryService.getMerchantDetails");
-    log.info("Fetching all merchant details | search={}, page={}, pageSize={}", search, page, pageSize);
+  public Future<PagedResult<MerchantDetailResponse>> getMerchantDetails(FindAllMerchantDetailRequest req) {
+    var ctx = metrics.startSpan("MerchantDetailQueryService.getMerchantDetails");
+    String cacheKey = buildListCacheKey("all", req);
 
-    return repository.getMerchantDetails(search, page, pageSize)
-        .map(result -> {
-          List<MerchantDetailResponse> data = result.getData().stream()
-              .map(MerchantDetailResponse::from)
-              .toList();
-          tracingMetrics.completeSpanSuccess(ctx, "get_all", "Success");
-          return new PagedResult<>(data, result.getTotalRecords());
+    return redis.get(cacheKey)
+        .compose(jsonStr -> {
+          if (jsonStr != null && !jsonStr.isEmpty()) {
+            try {
+              PagedResult<MerchantDetailsRelation> typedCached = mapper.readValue(
+                  jsonStr, new TypeReference<PagedResult<MerchantDetailsRelation>>() {
+                  });
+              return Future.succeededFuture(mapPagination(typedCached));
+            } catch (Exception e) {
+              log.warn("Failed to deserialize cached merchant details: {}", e.getMessage());
+            }
+          }
+          return repository.getMerchantDetails(req)
+              .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
+              .map(this::mapPagination);
         })
-        .recover(err -> {
-          log.error("Failed to fetch all merchant details", err);
-          tracingMetrics.completeSpanError(ctx, "get_all", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "get_all", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "get_all", e.getMessage()));
   }
 
   @Override
-  public Future<PagedResult<MerchantDetailResponse>> getMerchantDetailsActive(String search, int page, int pageSize) {
-    var ctx = tracingMetrics.startSpan("MerchantDetailQueryService.getMerchantDetailsActive");
-    log.info("Fetching active merchant details | search={}, page={}, pageSize={}", search, page, pageSize);
+  public Future<PagedResult<MerchantDetailResponse>> getMerchantDetailsActive(FindAllMerchantDetailRequest req) {
+    var ctx = metrics.startSpan("MerchantDetailQueryService.getMerchantDetailsActive");
+    String cacheKey = buildListCacheKey("active", req);
 
-    return repository.getMerchantDetailsActive(search, page, pageSize)
-        .map(result -> {
-          List<MerchantDetailResponse> data = result.getData().stream()
-              .map(MerchantDetailResponse::from)
-              .toList();
-          tracingMetrics.completeSpanSuccess(ctx, "get_active", "Success");
-          return new PagedResult<>(data, result.getTotalRecords());
+    return redis.get(cacheKey)
+        .compose(jsonStr -> {
+          if (jsonStr != null && !jsonStr.isEmpty()) {
+            try {
+              PagedResult<MerchantDetailsRelation> typedCached = mapper.readValue(
+                  jsonStr, new TypeReference<PagedResult<MerchantDetailsRelation>>() {
+                  });
+              return Future.succeededFuture(mapPagination(typedCached));
+            } catch (Exception e) {
+              log.warn("Failed to deserialize cached active merchant details: {}", e.getMessage());
+            }
+          }
+          return repository.getMerchantDetailsActive(req)
+              .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
+              .map(this::mapPagination);
         })
-        .recover(err -> {
-          log.error("Failed to fetch active merchant details", err);
-          tracingMetrics.completeSpanError(ctx, "get_active", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "get_active", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "get_active", e.getMessage()));
   }
 
   @Override
-  public Future<PagedResult<MerchantDetailResponseDeleteAt>> getMerchantDetailsTrashed(String search, int page, int pageSize) {
-    var ctx = tracingMetrics.startSpan("MerchantDetailQueryService.getMerchantDetailsTrashed");
-    log.info("Fetching trashed merchant details | search={}, page={}, pageSize={}", search, page, pageSize);
+  public Future<PagedResult<MerchantDetailResponseDeleteAt>> getMerchantDetailsTrashed(
+      FindAllMerchantDetailRequest req) {
+    var ctx = metrics.startSpan("MerchantDetailQueryService.getMerchantDetailsTrashed");
+    String cacheKey = buildListCacheKey("trashed", req);
 
-    return repository.getMerchantDetailsTrashed(search, page, pageSize)
-        .map(result -> {
-          List<MerchantDetailResponseDeleteAt> data = result.getData().stream()
-              .map(MerchantDetailResponseDeleteAt::from)
-              .toList();
-          tracingMetrics.completeSpanSuccess(ctx, "get_trashed", "Success");
-          return new PagedResult<>(data, result.getTotalRecords());
+    return redis.get(cacheKey)
+        .compose(jsonStr -> {
+          if (jsonStr != null && !jsonStr.isEmpty()) {
+            try {
+              PagedResult<MerchantDetailsRelation> typedCached = mapper.readValue(
+                  jsonStr, new TypeReference<PagedResult<MerchantDetailsRelation>>() {
+                  });
+              return Future.succeededFuture(mapPaginationDeleteAt(typedCached));
+            } catch (Exception e) {
+              log.warn("Failed to deserialize cached trashed merchant details: {}", e.getMessage());
+            }
+          }
+          return repository.getMerchantDetailsTrashed(req)
+              .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
+              .map(this::mapPaginationDeleteAt);
         })
-        .recover(err -> {
-          log.error("Failed to fetch trashed merchant details", err);
-          tracingMetrics.completeSpanError(ctx, "get_trashed", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "get_trashed", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "get_trashed", e.getMessage()));
   }
 
   @Override
   public Future<MerchantDetailResponse> getMerchantDetail(Long merchantDetailId) {
-    var ctx = tracingMetrics.startSpan("MerchantDetailQueryService.getMerchantDetail");
-    log.info("Fetching merchant detail by id: {}", merchantDetailId);
-    String cacheKey = "merchant_detail:" + merchantDetailId;
+    var ctx = metrics.startSpan("MerchantDetailQueryService.getMerchantDetail",
+        Attributes.builder().put("merchant_detail.id", merchantDetailId).build());
+    String cacheKey = CACHE_PREFIX + "id:" + merchantDetailId;
 
-    return redisService.get(cacheKey)
-        .<MerchantDetailResponse>compose(cached -> {
-          if (cached != null && !cached.isEmpty()) {
-            try {
-              MerchantDetailsRelation data = Json.decodeValue(cached, MerchantDetailsRelation.class);
-              return Future.succeededFuture(MerchantDetailResponse.from(data));
-            } catch (Exception e) {
-              log.warn("Cache parse error: {}", e.getMessage());
-            }
+    return redis.getJson(cacheKey, MerchantDetailsRelation.class)
+        .compose(cached -> {
+          if (cached != null) {
+            return Future.succeededFuture(MerchantDetailResponse.from(cached));
           }
-
           return repository.getMerchantDetail(merchantDetailId)
-              .compose(data -> {
-                if (data == null) {
-                  return Future.failedFuture("Merchant Detail not found");
+              .compose(db -> {
+                if (db == null) {
+                  return Future.<MerchantDetailsRelation>failedFuture(
+                      new NotFoundException("Merchant Detail not found"));
                 }
-                return redisService.set(cacheKey, Json.encode(data), Duration.ofMinutes(60))
-                    .onFailure(err -> log.warn("Cache set failed: {}", err.getMessage()))
-                    .map(v -> MerchantDetailResponse.from(data));
-              });
+                return redis.setJson(cacheKey, db, CACHE_TTL).<MerchantDetailsRelation>map(v -> db);
+              })
+              .map(MerchantDetailResponse::from);
         })
-        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "get_by_id", "Success"))
-        .onFailure(err -> tracingMetrics.completeSpanError(ctx, "get_by_id", err.getMessage()));
+        .onSuccess(r -> metrics.completeSpanSuccess(ctx, "get_by_id", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "get_by_id", e.getMessage()));
   }
 }

@@ -1,23 +1,32 @@
 package io.example.order.service;
 
-import io.example.common.model.ApiResponse;
+import java.util.List;
+
+import io.example.order.domain.requests.*;
 import io.example.order.model.OrderMonthly;
 import io.example.order.model.OrderMonthlyTotalRevenue;
 import io.example.order.model.OrderYearly;
 import io.example.order.model.OrderYearlyTotalRevenue;
 import io.vertx.core.Future;
-import java.util.List;
 
 public interface OrderStatsService {
-    Future<ApiResponse<List<OrderMonthlyTotalRevenue>>> getMonthlyTotalRevenue(int year, int month);
-    Future<ApiResponse<List<OrderYearlyTotalRevenue>>> getYearlyTotalRevenue(int year);
-    Future<ApiResponse<List<OrderMonthlyTotalRevenue>>> getMonthlyTotalRevenueById(Long orderId, int year, int month);
-    Future<ApiResponse<List<OrderYearlyTotalRevenue>>> getYearlyTotalRevenueById(Long orderId, int year);
-    Future<ApiResponse<List<OrderMonthlyTotalRevenue>>> getMonthlyTotalRevenueByMerchant(Integer merchantId, int year, int month);
-    Future<ApiResponse<List<OrderYearlyTotalRevenue>>> getYearlyTotalRevenueByMerchant(Integer merchantId, int year);
+    Future<List<OrderMonthlyTotalRevenue>> getMonthlyTotalRevenue(MonthTotalRevenue req);
 
-    Future<ApiResponse<List<OrderMonthly>>> getMonthlyOrder(int year);
-    Future<ApiResponse<List<OrderYearly>>> getYearlyOrder(int year);
-    Future<ApiResponse<List<OrderMonthly>>> getMonthlyOrderByMerchant(Integer merchantId, int year);
-    Future<ApiResponse<List<OrderYearly>>> getYearlyOrderByMerchant(Integer merchantId, int year);
+    Future<List<OrderYearlyTotalRevenue>> getYearlyTotalRevenue(int year);
+
+    Future<List<OrderMonthlyTotalRevenue>> getMonthlyTotalRevenueById(MonthTotalRevenueByIdRequest req);
+
+    Future<List<OrderYearlyTotalRevenue>> getYearlyTotalRevenueById(YearTotalRevenueByIdRequest req);
+
+    Future<List<OrderMonthlyTotalRevenue>> getMonthlyTotalRevenueByMerchant(MonthTotalRevenueMerchantRequest req);
+
+    Future<List<OrderYearlyTotalRevenue>> getYearlyTotalRevenueByMerchant(YearTotalRevenueMerchantRequest req);
+
+    Future<List<OrderMonthly>> getMonthlyOrder(int year);
+
+    Future<List<OrderYearly>> getYearlyOrder(int year);
+
+    Future<List<OrderMonthly>> getMonthlyOrderByMerchant(MonthOrderMerchantRequest req);
+
+    Future<List<OrderYearly>> getYearlyOrderByMerchant(YearOrderMerchantRequest req);
 }

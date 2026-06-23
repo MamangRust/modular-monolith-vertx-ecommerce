@@ -1,21 +1,19 @@
 package io.example.review.repository.impl;
 
 import io.example.review.model.Review;
-import io.example.review.model.CreateReviewRequest;
-import io.example.review.model.UpdateReviewRequest;
+import io.example.review.domain.requests.CreateReviewRequest;
+import io.example.review.domain.requests.UpdateReviewRequest;
 import io.example.review.repository.ReviewCommandRepository;
 
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ReviewCommandRepositoryImpl implements ReviewCommandRepository {
     private final Pool client;
-
-    public ReviewCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<Review> createReview(CreateReviewRequest req) {
@@ -25,7 +23,8 @@ public class ReviewCommandRepositoryImpl implements ReviewCommandRepository {
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING *
                         """)
-                .execute(Tuple.of(req.getUserId(), req.getProductId(), req.getName(), req.getComment(), req.getRating()))
+                .execute(
+                        Tuple.of(req.getUserId(), req.getProductId(), req.getName(), req.getComment(), req.getRating()))
                 .map(rows -> Review.fromRow(rows.iterator().next()));
     }
 
@@ -45,7 +44,8 @@ public class ReviewCommandRepositoryImpl implements ReviewCommandRepository {
     @Override
     public Future<Review> trashReview(Long reviewId) {
         return client
-                .preparedQuery("UPDATE reviews SET deleted_at = CURRENT_TIMESTAMP WHERE review_id = $1 AND deleted_at IS NULL RETURNING *")
+                .preparedQuery(
+                        "UPDATE reviews SET deleted_at = CURRENT_TIMESTAMP WHERE review_id = $1 AND deleted_at IS NULL RETURNING *")
                 .execute(Tuple.of(reviewId))
                 .map(rows -> rows.iterator().hasNext() ? Review.fromRow(rows.iterator().next()) : null);
     }
@@ -53,7 +53,8 @@ public class ReviewCommandRepositoryImpl implements ReviewCommandRepository {
     @Override
     public Future<Review> restoreReview(Long reviewId) {
         return client
-                .preparedQuery("UPDATE reviews SET deleted_at = NULL WHERE review_id = $1 AND deleted_at IS NOT NULL RETURNING *")
+                .preparedQuery(
+                        "UPDATE reviews SET deleted_at = NULL WHERE review_id = $1 AND deleted_at IS NOT NULL RETURNING *")
                 .execute(Tuple.of(reviewId))
                 .map(rows -> rows.iterator().hasNext() ? Review.fromRow(rows.iterator().next()) : null);
     }

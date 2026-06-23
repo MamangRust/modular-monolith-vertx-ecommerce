@@ -1,21 +1,19 @@
 package io.example.review_detail.repository.impl;
 
-import io.example.review_detail.model.CreateReviewDetailRequest;
+import io.example.review_detail.domain.requests.CreateReviewDetailRequest;
 import io.example.review_detail.model.ReviewDetail;
-import io.example.review_detail.model.UpdateReviewDetailRequest;
+import io.example.review_detail.domain.requests.UpdateReviewDetailRequest;
 import io.example.review_detail.repository.ReviewDetailCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRepository {
     private final Pool client;
-
-    public ReviewDetailCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<ReviewDetail> createReviewDetail(CreateReviewDetailRequest req) {
@@ -62,7 +60,7 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
     }
 
     @Override
-    public Future<ReviewDetail> trashReviewDetail(Integer reviewDetailId) {
+    public Future<ReviewDetail> trashReviewDetail(Long reviewDetailId) {
         return client
                 .preparedQuery("""
                         UPDATE review_details
@@ -86,7 +84,7 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
     }
 
     @Override
-    public Future<ReviewDetail> restoreReviewDetail(Integer reviewDetailId) {
+    public Future<ReviewDetail> restoreReviewDetail(Long reviewDetailId) {
         return client
                 .preparedQuery("""
                         UPDATE review_details
@@ -110,7 +108,7 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
     }
 
     @Override
-    public Future<Void> deletePermanentReviewDetail(Integer reviewDetailId) {
+    public Future<Boolean> deletePermanentReviewDetail(Long reviewDetailId) {
         return client
                 .preparedQuery("""
                         DELETE FROM review_details
@@ -119,11 +117,11 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
                             AND deleted_at IS NOT NULL
                         """)
                 .execute(Tuple.of(reviewDetailId))
-                .mapEmpty();
+                .map(row -> row.rowCount() > 0);
     }
 
     @Override
-    public Future<Void> restoreAllReviewDetails() {
+    public Future<Integer> restoreAllReviewDetails() {
         return client
                 .preparedQuery("""
                         UPDATE review_details
@@ -133,15 +131,15 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
                             deleted_at IS NOT NULL
                         """)
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     @Override
-    public Future<Void> deleteAllPermanentReviewDetails() {
+    public Future<Integer> deleteAllPermanentReviewDetails() {
         return client
                 .preparedQuery("DELETE FROM review_details WHERE deleted_at IS NOT NULL")
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     private ReviewDetail mapSingleOrNull(RowSet<Row> rows) {

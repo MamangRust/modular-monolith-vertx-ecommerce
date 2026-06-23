@@ -8,32 +8,30 @@ import com.google.protobuf.Empty;
 import io.example.order.model.ShippingAddress;
 import io.example.order.repository.ShippingAddressCommandRepository;
 import io.vertx.core.Future;
+import lombok.RequiredArgsConstructor;
 import pb.shipping_address.ShippingAddressCommon.FindByIdShippingRequest;
 import pb.shipping_address.ShippingAddressCommand.CreateShippingAddressRequest;
 import pb.shipping_address.ShippingAddressCommand.UpdateShippingAddressRequest;
 import pb.shipping_address.VertxShippingCommandServiceGrpcClient;
 import pb.shipping_address.VertxShippingQueryServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class ShippingAddressCommandRepositoryImpl implements ShippingAddressCommandRepository {
     private final VertxShippingCommandServiceGrpcClient commandClient;
     private final VertxShippingQueryServiceGrpcClient queryClient;
 
-    public ShippingAddressCommandRepositoryImpl(VertxShippingCommandServiceGrpcClient commandClient, VertxShippingQueryServiceGrpcClient queryClient) {
-        this.commandClient = commandClient;
-        this.queryClient = queryClient;
-    }
-
     @Override
-    public Future<ShippingAddress> createShippingAddress(Long orderId, String alamat, String provinsi, String negara, String kota, String courier, String shippingMethod, Integer shippingCost) {
+    public Future<ShippingAddress> createShippingAddress(
+            io.example.order.domain.requests.CreateShippingAddressRequest req) {
         CreateShippingAddressRequest request = CreateShippingAddressRequest.newBuilder()
-                .setOrderId(orderId.intValue())
-                .setAlamat(alamat)
-                .setProvinsi(provinsi)
-                .setNegara(negara)
-                .setKota(kota)
-                .setCourier(courier)
-                .setShippingMethod(shippingMethod)
-                .setShippingCost(shippingCost)
+                .setOrderId(req.getOrderId().intValue())
+                .setAlamat(req.getAlamat())
+                .setProvinsi(req.getProvinsi())
+                .setNegara(req.getNegara())
+                .setKota(req.getKota())
+                .setCourier(req.getCourier())
+                .setShippingMethod(req.getShippingMethod())
+                .setShippingCost(req.getShippingCost())
                 .build();
 
         return commandClient.createShipping(request)
@@ -47,7 +45,7 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
                                 .provinsi(data.getProvinsi())
                                 .negara(data.getNegara())
                                 .kota(data.getKota())
-                                .courier(courier) // Preserve original courier parameter
+                                .courier(req.getCourier())
                                 .shippingMethod(data.getShippingMethod())
                                 .shippingCost(data.getShippingCost())
                                 .createdAt(parseTimestamp(data.getCreatedAt()))
@@ -59,16 +57,18 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     @Override
-    public Future<ShippingAddress> updateShippingAddress(Long shippingId, String alamat, String provinsi, String negara, String kota, String courier, String shippingMethod, Integer shippingCost) {
+    public Future<ShippingAddress> updateShippingAddress(
+            io.example.order.domain.requests.UpdateShippingAddressRequest req) {
         UpdateShippingAddressRequest request = UpdateShippingAddressRequest.newBuilder()
-                .setShippingId(shippingId.intValue())
-                .setAlamat(alamat)
-                .setProvinsi(provinsi)
-                .setNegara(negara)
-                .setKota(kota)
-                .setCourier(courier)
-                .setShippingMethod(shippingMethod)
-                .setShippingCost(shippingCost)
+                .setShippingId(req.getShippingId().intValue())
+                .setOrderId(req.getOrderId().intValue())
+                .setAlamat(req.getAlamat())
+                .setProvinsi(req.getProvinsi())
+                .setNegara(req.getNegara())
+                .setKota(req.getKota())
+                .setCourier(req.getCourier())
+                .setShippingMethod(req.getShippingMethod())
+                .setShippingCost(req.getShippingCost())
                 .build();
 
         return commandClient.updateShipping(request)
@@ -82,7 +82,7 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
                                 .provinsi(data.getProvinsi())
                                 .negara(data.getNegara())
                                 .kota(data.getKota())
-                                .courier(courier) // Preserve original courier parameter
+                                .courier(req.getCourier())
                                 .shippingMethod(data.getShippingMethod())
                                 .shippingCost(data.getShippingCost())
                                 .createdAt(parseTimestamp(data.getCreatedAt()))
@@ -94,9 +94,9 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     @Override
-    public Future<ShippingAddress> getShippingAddressByOrderID(Integer orderId) {
+    public Future<ShippingAddress> getShippingAddressByOrderID(Long orderId) {
         FindByIdShippingRequest request = FindByIdShippingRequest.newBuilder()
-                .setId(orderId)
+                .setId(orderId.intValue())
                 .build();
 
         return queryClient.findByOrder(request)
@@ -122,9 +122,9 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     @Override
-    public Future<Void> deleteShippingAddressPermanently(Integer orderId) {
+    public Future<Void> deleteShippingAddressPermanently(Long orderId) {
         FindByIdShippingRequest request = FindByIdShippingRequest.newBuilder()
-                .setId(orderId)
+                .setId(orderId.intValue())
                 .build();
 
         return commandClient.deleteShippingByOrderPermanent(request)
@@ -138,7 +138,8 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     private Timestamp parseTimestamp(String ts) {
-        if (ts == null || ts.isBlank()) return null;
+        if (ts == null || ts.isBlank())
+            return null;
         try {
             return Timestamp.from(Instant.parse(ts));
         } catch (Exception e) {

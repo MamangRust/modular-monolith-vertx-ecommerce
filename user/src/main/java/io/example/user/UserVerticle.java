@@ -25,6 +25,9 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.grpc.server.GrpcServer;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.redis.client.RedisAPI;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
@@ -34,17 +37,18 @@ public class UserVerticle extends AbstractVerticle {
   private static final Logger log = LoggerFactory.getLogger(UserVerticle.class);
 
   private TelemetryConfig telemetryConfig;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5432)
-            .put("database", "vertxdb")
-            .put("user", "vertx")
-            .put("password", "vertx")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
+            .put("user", "DRAGON")
+            .put("password", "DRAGON")
             .put("pool_size", 5))
         .put("grpc_port", 8082)
         .put("service.name", "user-service");
@@ -89,9 +93,12 @@ public class UserVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
     
-    UserQueryRepository queryRepo = new UserQueryRepositoryImpl(pool);
-    UserCommandRepository cmdRepo = new UserCommandRepositoryImpl(pool);
+    UserQueryRepository queryRepo = new UserQueryRepositoryImpl(chaosPool);
+    UserCommandRepository cmdRepo = new UserCommandRepositoryImpl(chaosPool);
 
     // 3. Initialize Caching
     RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -99,7 +106,7 @@ public class UserVerticle extends AbstractVerticle {
 
     // 4. Initialize Services
     UserQueryService queryService = new UserQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    UserCommandService cmdService = new UserCommandServiceImpl(cmdRepo, redisService, tracingMetrics);
+    UserCommandService cmdService = new UserCommandServiceImpl(cmdRepo, queryRepo, redisService, tracingMetrics);
 
     // 5. Initialize Handlers
     var queryHandler = new UserQueryHandler(queryService);
@@ -133,7 +140,7 @@ public class UserVerticle extends AbstractVerticle {
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

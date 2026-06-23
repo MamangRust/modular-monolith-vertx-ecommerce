@@ -2,171 +2,194 @@ package io.example.merchant_detail.service.impl;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import io.example.common.domain.ApiResponse;
+
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
+import io.example.merchant_detail.domain.requests.CreateMerchantSocialRequest;
+import io.example.merchant_detail.domain.requests.UpdateMerchantSocialRequest;
 import io.example.merchant_detail.model.MerchantSocialMediaLinkResponse;
+import io.example.merchant_detail.model.MerchantSocialMediaLinkResponseDeleteAt;
 import io.example.merchant_detail.repository.MerchantSocialLinkCommandRepository;
+import io.example.merchant_detail.repository.MerchantSocialLinkeQueryRepository;
 import io.example.merchant_detail.service.MerchantSocialLinkCommandService;
+import io.opentelemetry.api.common.Attributes;
 import io.vertx.core.Future;
-import pb.MerchantSocialLinkCommand.CreateMerchantSocialRequest;
-import pb.MerchantSocialLinkCommand.UpdateMerchantSocialRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantSocialLinkCommandServiceImpl implements MerchantSocialLinkCommandService {
-  private static final Logger log = LoggerFactory.getLogger(MerchantSocialLinkCommandServiceImpl.class);
+  private static final Logger logger = LoggerFactory.getLogger(MerchantSocialLinkCommandServiceImpl.class);
 
   private final MerchantSocialLinkCommandRepository repository;
+  private final MerchantSocialLinkeQueryRepository queryRepository;
   private final RedisService redisService;
   private final TracingMetrics tracingMetrics;
 
-  public MerchantSocialLinkCommandServiceImpl(
-      MerchantSocialLinkCommandRepository repository,
-      RedisService redisService,
-      TracingMetrics tracingMetrics) {
-    this.repository = repository;
-    this.redisService = redisService;
-    this.tracingMetrics = tracingMetrics;
+  private static final String CACHE_PREFIX = "merchant_social:";
+
+  private Future<Void> evict(Long id) {
+    return redisService.delete(CACHE_PREFIX + "id:" + id).mapEmpty();
+  }
+
+  private Future<Void> evictAll() {
+    return redisService.deleteByPattern(CACHE_PREFIX + "list:*").mapEmpty();
   }
 
   @Override
-  public Future<ApiResponse<MerchantSocialMediaLinkResponse>> create(CreateMerchantSocialRequest req) {
-    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.create");
-    log.info("Creating social link for merchant detail: {}", req.getMerchantDetailId());
-    String parentCacheKey = "merchant_detail:" + req.getMerchantDetailId();
+  public Future<MerchantSocialMediaLinkResponse> create(CreateMerchantSocialRequest req) {
+    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.create",
+        Attributes.builder()
+            .put("social.merchant_detail_id", req.getMerchantDetailId())
+            .put("social.platform", req.getPlatform())
+            .build());
+
+    logger.info("Creating social link for merchant detail: {}", req.getMerchantDetailId());
 
     return repository.create(req)
-        .compose(data -> redisService.delete(parentCacheKey).map(data))
-        .map(data -> {
-          tracingMetrics.completeSpanSuccess(ctx, "create", "Success");
-          return ApiResponse.success("Social link created", MerchantSocialMediaLinkResponse.from(data));
-        })
-        .recover(err -> {
-          log.error("Failed to create social link", err);
-          tracingMetrics.completeSpanError(ctx, "create", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .map(MerchantSocialMediaLinkResponse::from)
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "create", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to create social link", e);
+          tracingMetrics.completeSpanError(ctx, "create", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<MerchantSocialMediaLinkResponse>> update(UpdateMerchantSocialRequest req) {
-    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.update");
-    log.info("Updating social link: {}", req.getId());
+  public Future<MerchantSocialMediaLinkResponse> update(UpdateMerchantSocialRequest req) {
+    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.update",
+        Attributes.builder()
+            .put("social.id", req.getId())
+            .put("social.platform", req.getPlatform())
+            .build());
+
+    logger.info("Updating social link: {}", req.getId());
 
     return repository.update(req)
         .compose(data -> {
           if (data == null) {
-            return Future.failedFuture("Social link not found");
+            return Future.failedFuture(new NotFoundException("Social link not found with ID: " + req.getId()));
           }
-          String parentCacheKey = "merchant_detail:" + data.getMerchantDetailId();
-          return redisService.delete(parentCacheKey).map(data);
+          return evict(req.getId().longValue()).map(v -> data);
         })
-        .map(data -> {
-          tracingMetrics.completeSpanSuccess(ctx, "update", "Success");
-          return ApiResponse.success("Social link updated", MerchantSocialMediaLinkResponse.from(data));
-        })
-        .recover(err -> {
-          log.error("Failed to update social link", err);
-          tracingMetrics.completeSpanError(ctx, "update", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .map(MerchantSocialMediaLinkResponse::from)
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "update", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to update social link", e);
+          tracingMetrics.completeSpanError(ctx, "update", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<Boolean>> trash(Long id) {
-    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.trash");
-    log.info("Trashing social link: {}", id);
+  public Future<MerchantSocialMediaLinkResponseDeleteAt> trash(Integer id) {
+    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.trash",
+        Attributes.builder().put("social.id", id).build());
+
+    logger.info("Trashing social link: {}", id);
 
     return repository.trash(id)
         .compose(data -> {
           if (data == null) {
-            return Future.failedFuture("Social link not found");
+            return Future.failedFuture(new NotFoundException("Social link not found with ID: " + id));
           }
-          String parentCacheKey = "merchant_detail:" + data.getMerchantDetailId();
-          return redisService.delete(parentCacheKey);
+          return evict(id.longValue()).map(v -> data);
         })
-        .map(v -> {
-          tracingMetrics.completeSpanSuccess(ctx, "trash", "Success");
-          return ApiResponse.success("Social link trashed successfully", true);
-        })
-        .recover(err -> {
-          log.error("Failed to trash social link", err);
-          tracingMetrics.completeSpanError(ctx, "trash", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .map(MerchantSocialMediaLinkResponseDeleteAt::from)
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "trash", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to trash social link", e);
+          tracingMetrics.completeSpanError(ctx, "trash", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<Boolean>> restore(Long id) {
-    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.restore");
-    log.info("Restoring social link: {}", id);
+  public Future<MerchantSocialMediaLinkResponseDeleteAt> restore(Integer id) {
+    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.restore",
+        Attributes.builder().put("social.id", id).build());
 
-    return repository.restore(id)
+    logger.info("Restoring social link: {}", id);
+
+    return queryRepository.findByTrashedId(id)
+        .compose(trashed -> {
+          if (trashed == null) {
+            return Future.failedFuture(new BadRequestException("Social link not found or must be trashed first"));
+          }
+          return repository.restore(id);
+        })
+        .compose(r -> {
+          if (r == null) {
+            return Future.failedFuture(new NotFoundException("Social link not found"));
+          }
+          return evict(id.longValue()).map(v -> r);
+        })
+        .map(MerchantSocialMediaLinkResponseDeleteAt::from)
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "restore", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to restore social link", e);
+          tracingMetrics.completeSpanError(ctx, "restore", e.getMessage());
+        });
+  }
+
+  @Override
+  public Future<Void> deletePermanent(Integer id) {
+    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.deletePermanent",
+        Attributes.builder().put("social.id", id).build());
+
+    logger.info("Deleting social link permanently: {}", id);
+
+    return queryRepository.findByTrashedId(id)
         .compose(data -> {
           if (data == null) {
-            return Future.failedFuture("Social link not found");
+            return Future.failedFuture(new NotFoundException("Social link not found with ID: " + id));
           }
-          String parentCacheKey = "merchant_detail:" + data.getMerchantDetailId();
-          return redisService.delete(parentCacheKey);
+          return repository.deletePermanent(id);
         })
-        .map(v -> {
-          tracingMetrics.completeSpanSuccess(ctx, "restore", "Success");
-          return ApiResponse.success("Social link restored successfully", true);
-        })
-        .recover(err -> {
-          log.error("Failed to restore social link", err);
-          tracingMetrics.completeSpanError(ctx, "restore", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .compose(v -> evict(id.longValue()))
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "deletePermanent", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to delete social link permanently", e);
+          tracingMetrics.completeSpanError(ctx, "deletePermanent", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<Boolean>> deletePermanent(Long id) {
-    var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.deletePermanent");
-    log.info("Deleting social link permanently: {}", id);
-
-    return repository.deletePermanent(id)
-        .map(v -> {
-          tracingMetrics.completeSpanSuccess(ctx, "delete_permanent", "Success");
-          return ApiResponse.success("Social link deleted permanently successfully", true);
-        })
-        .recover(err -> {
-          log.error("Failed to delete social link permanently", err);
-          tracingMetrics.completeSpanError(ctx, "delete_permanent", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-        });
-  }
-
-  @Override
-  public Future<ApiResponse<Integer>> restoreAll() {
+  public Future<Void> restoreAll() {
     var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.restoreAll");
-    log.info("Restoring all social links");
+
+    logger.info("Restoring all social links");
 
     return repository.restoreAll()
-        .map(count -> {
-          tracingMetrics.completeSpanSuccess(ctx, "restore_all", "Success");
-          return ApiResponse.success("Restored all successfully", count);
+        .compose(count -> {
+          if (count == 0) {
+            return Future.failedFuture(new NotFoundException("No trashed social links found"));
+          }
+          return evictAll();
         })
-        .recover(err -> {
-          log.error("Failed to restore all social links", err);
-          tracingMetrics.completeSpanError(ctx, "restore_all", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "restoreAll", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to restore all social links", e);
+          tracingMetrics.completeSpanError(ctx, "restoreAll", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<Integer>> deleteAllPermanent() {
+  public Future<Void> deleteAllPermanent() {
     var ctx = tracingMetrics.startSpan("MerchantSocialLinkCommandService.deleteAllPermanent");
-    log.info("Deleting all social links permanently");
+
+    logger.info("Deleting all social links permanently");
 
     return repository.deleteAll()
-        .map(count -> {
-          tracingMetrics.completeSpanSuccess(ctx, "delete_all_permanent", "Success");
-          return ApiResponse.success("Deleted all permanently successfully", count);
+        .compose(count -> {
+          if (count == 0) {
+            return Future.failedFuture(new NotFoundException("No trashed social links found"));
+          }
+          return evictAll();
         })
-        .recover(err -> {
-          log.error("Failed to delete all social links permanently", err);
-          tracingMetrics.completeSpanError(ctx, "delete_all_permanent", err.getMessage());
-          return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .onSuccess(v -> tracingMetrics.completeSpanSuccess(ctx, "deleteAllPermanent", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to delete all social links permanently", e);
+          tracingMetrics.completeSpanError(ctx, "deleteAllPermanent", e.getMessage());
         });
   }
 }

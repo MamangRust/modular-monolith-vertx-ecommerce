@@ -16,6 +16,7 @@
     <module>auth</module>
     <module>role</module>
     <module>banner</module>
+    <module>db-migration</module>
     <module>cart</module>
     <module>category</module>
     <module>merchant</module>

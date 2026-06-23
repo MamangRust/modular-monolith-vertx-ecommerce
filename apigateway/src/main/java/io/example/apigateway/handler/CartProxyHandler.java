@@ -1,9 +1,13 @@
 package io.example.apigateway.handler;
 
-import io.example.apigateway.utils.ProtoMapper;
+import static io.example.apigateway.utils.GrpcGatewayUtils.sendResponse;
+
+import io.example.apigateway.utils.GrpcGatewayUtils;
+import io.example.common.exception.api.UnauthorizedException;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
+import lombok.RequiredArgsConstructor;
 import pb.cart.CartQuery;
 import pb.cart.CartCommand;
 import pb.cart.VertxCartQueryServiceGrpcClient;
@@ -12,60 +16,52 @@ import pb.cart.VertxCartCommandServiceGrpcClient;
 import java.util.ArrayList;
 import java.util.List;
 
+@RequiredArgsConstructor
 public class CartProxyHandler {
     private final VertxCartQueryServiceGrpcClient queryClient;
     private final VertxCartCommandServiceGrpcClient commandClient;
 
-    public CartProxyHandler(VertxCartQueryServiceGrpcClient queryClient, VertxCartCommandServiceGrpcClient commandClient) {
-        this.queryClient = queryClient;
-        this.commandClient = commandClient;
-    }
-
     public void findAll(RoutingContext ctx) {
-        if (ctx.user() == null || ctx.user().principal() == null) {
-            ctx.response().setStatusCode(401).end("Unauthorized");
+        int userId = requireUserId(ctx);
+        if (userId == -1)
             return;
-        }
-        int userId = ctx.user().principal().getInteger("userId", 0);
 
         var req = CartQuery.FindAllCartRequest.newBuilder()
                 .setUserId(userId)
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
+                .setSearch(GrpcGatewayUtils.getQueryString(ctx, "search", ""))
+                .setPage(GrpcGatewayUtils.getQueryInt(ctx, "page", 1))
+                .setPageSize(GrpcGatewayUtils.getQueryInt(ctx, "pageSize", 10))
                 .build();
 
         queryClient.findAll(req)
                 .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
+                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
     }
 
     public void create(RoutingContext ctx) {
-        if (ctx.user() == null || ctx.user().principal() == null) {
-            ctx.response().setStatusCode(401).end("Unauthorized");
+        int userId = requireUserId(ctx);
+        if (userId == -1)
             return;
-        }
-        int userId = ctx.user().principal().getInteger("userId", 0);
+
         JsonObject body = ctx.body().asJsonObject();
 
         var req = CartCommand.CreateCartRequest.newBuilder()
                 .setUserId(userId)
-                .setProductId(body.getInteger("product_id", 0))
-                .setQuantity(body.getInteger("quantity", 1))
+                .setProductId(GrpcGatewayUtils.getJsonInteger(body, "product_id", 0))
+                .setQuantity(GrpcGatewayUtils.getJsonInteger(body, "quantity", 1))
                 .build();
 
         commandClient.create(req)
                 .onSuccess(resp -> sendResponse(ctx, resp, 201))
-                .onFailure(ctx::fail);
+                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
     }
 
     public void delete(RoutingContext ctx) {
-        if (ctx.user() == null || ctx.user().principal() == null) {
-            ctx.response().setStatusCode(401).end("Unauthorized");
+        int userId = requireUserId(ctx);
+        if (userId == -1)
             return;
-        }
-        int userId = ctx.user().principal().getInteger("userId", 0);
-        int cartId = Integer.parseInt(ctx.pathParam("id"));
+
+        int cartId = GrpcGatewayUtils.getSafePathInt(ctx, "id");
 
         var req = CartCommand.DeleteCartRequest.newBuilder()
                 .setUserId(userId)
@@ -74,15 +70,14 @@ public class CartProxyHandler {
 
         commandClient.delete(req)
                 .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
+                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
     }
 
     public void deleteAll(RoutingContext ctx) {
-        if (ctx.user() == null || ctx.user().principal() == null) {
-            ctx.response().setStatusCode(401).end("Unauthorized");
+        int userId = requireUserId(ctx);
+        if (userId == -1)
             return;
-        }
-        int userId = ctx.user().principal().getInteger("userId", 0);
+
         JsonObject body = ctx.body().asJsonObject();
         JsonArray cartIdsArr = body.getJsonArray("cart_ids");
 
@@ -100,15 +95,21 @@ public class CartProxyHandler {
 
         commandClient.deleteAll(req)
                 .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
+                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
     }
 
-    private void sendResponse(RoutingContext ctx, com.google.protobuf.MessageOrBuilder proto, int defaultStatus) {
-        JsonObject json = ProtoMapper.toJson(proto);
-        int status = json.getInteger("status", defaultStatus);
-        ctx.response()
-                .setStatusCode(status == 0 ? defaultStatus : status)
-                .putHeader("Content-Type", "application/json")
-                .end(json.encode());
+    private int requireUserId(RoutingContext ctx) {
+        if (ctx.user() == null || ctx.user().principal() == null) {
+            ctx.fail(new UnauthorizedException("Unauthorized"));
+            return -1;
+        }
+
+        int userId = ctx.user().principal().getInteger("userId", 0);
+        if (userId == 0) {
+            ctx.fail(new UnauthorizedException("Invalid user token payload"));
+            return -1;
+        }
+
+        return userId;
     }
 }

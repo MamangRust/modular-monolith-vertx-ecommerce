@@ -6,22 +6,25 @@ import java.util.List;
 import io.example.common.domain.PagedResult;
 import io.example.cart.model.Cart;
 import io.example.cart.repository.CartQueryRepository;
+import io.example.cart.domain.requests.FindAllCartsRequest;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class CartQueryRepositoryImpl implements CartQueryRepository {
     private final Pool client;
 
-    public CartQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<PagedResult<Cart>> getCarts(Integer userId, String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
+    public Future<PagedResult<Cart>> getCarts(FindAllCartsRequest request) {
+        int page = request.getPage() != null && request.getPage() > 0 ? request.getPage() : 1;
+        int pageSize = request.getPageSize() != null && request.getPageSize() > 0 ? request.getPageSize() : 10;
+        int offset = (page - 1) * pageSize;
+        Integer userId = request.getUserId();
+        String search = request.getSearch();
 
         String query = "SELECT cart_id, user_id, product_id, name, price, image, quantity, weight, created_at, updated_at, COUNT(*) OVER() AS total_count FROM carts WHERE user_id = $1";
         List<Object> params = new ArrayList<>();

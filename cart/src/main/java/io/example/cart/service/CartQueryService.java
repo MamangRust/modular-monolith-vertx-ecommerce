@@ -1,11 +1,10 @@
 package io.example.cart.service;
 
-import java.util.List;
-import io.example.common.model.ApiResponsePagination;
+import io.example.common.domain.PagedResult;
 import io.example.cart.model.CartResponse;
+import io.example.cart.domain.requests.FindAllCartsRequest;
 import io.vertx.core.Future;
-import pb.cart.CartQuery.FindAllCartRequest;
 
 public interface CartQueryService {
-    Future<ApiResponsePagination<List<CartResponse>>> findAll(FindAllCartRequest req);
+    Future<PagedResult<CartResponse>> findAll(FindAllCartsRequest req);
 }

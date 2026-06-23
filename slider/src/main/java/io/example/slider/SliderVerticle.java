@@ -25,6 +25,9 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.grpc.server.GrpcServer;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.redis.client.RedisAPI;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
@@ -34,15 +37,16 @@ public class SliderVerticle extends AbstractVerticle {
   private static final Logger log = LoggerFactory.getLogger(SliderVerticle.class);
 
   private TelemetryConfig telemetryConfig;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5448)
-            .put("database", "ecommerce_slider")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
             .put("user", "DRAGON")
             .put("password", "DRAGON")
             .put("pool_size", 5))
@@ -64,11 +68,11 @@ public class SliderVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) {
     JsonObject rawConfig = config();
-    
+
     // 1. Initialize Telemetry
     JsonObject telConfig = rawConfig.copy();
     if (!telConfig.containsKey("service.name")) {
-        telConfig.put("service.name", "slider-service");
+      telConfig.put("service.name", "slider-service");
     }
     telemetryConfig = new TelemetryConfig(telConfig);
     OpenTelemetry openTelemetry = telemetryConfig.initialize();
@@ -89,9 +93,12 @@ public class SliderVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
-    SliderQueryRepository queryRepo = new SliderQueryRepositoryImpl(pool);
-    SliderCommandRepository cmdRepo = new SliderCommandRepositoryImpl(pool);
+    SliderQueryRepository queryRepo = new SliderQueryRepositoryImpl(chaosPool);
+    SliderCommandRepository cmdRepo = new SliderCommandRepositoryImpl(chaosPool);
 
     // 3. Initialize Caching
     RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -99,12 +106,12 @@ public class SliderVerticle extends AbstractVerticle {
 
     // 4. Initialize Services
     SliderQueryService queryService = new SliderQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    SliderCommandService cmdService = new SliderCommandServiceImpl(cmdRepo, redisService, tracingMetrics);
+    SliderCommandService cmdService = new SliderCommandServiceImpl(cmdRepo, queryRepo, redisService, tracingMetrics);
 
     // 5. Initialize Handlers
     var queryHandler = new SliderQueryHandler(queryService);
     var cmdHandler = new SliderCommandHandler(cmdService);
-    
+
     int port = cfg.getGrpcPort();
 
     startGrpcServer(queryHandler, cmdHandler, port)
@@ -133,7 +140,7 @@ public class SliderVerticle extends AbstractVerticle {
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

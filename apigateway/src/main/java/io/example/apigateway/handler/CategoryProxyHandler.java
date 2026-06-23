@@ -1,326 +1,310 @@
 package io.example.apigateway.handler;
 
-import io.example.apigateway.utils.ProtoMapper;
-import io.vertx.core.json.JsonObject;
+import static io.example.apigateway.utils.GrpcGatewayUtils.sendResponse;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import io.example.apigateway.utils.GrpcGatewayUtils;
+import io.example.common.exception.api.BadRequestException;
+import io.vertx.ext.web.FileUpload;
 import io.vertx.ext.web.RoutingContext;
-import pb.category.CategoryCommon;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import pb.category.CategoryCommand;
+import pb.category.CategoryCommon;
 import pb.category.CategoryQuery;
-import pb.category.VertxCategoryQueryServiceGrpcClient;
 import pb.category.VertxCategoryCommandServiceGrpcClient;
-import pb.category.VertxCategoryStatsServiceGrpcClient;
+import pb.category.VertxCategoryQueryServiceGrpcClient;
 import pb.category.VertxCategoryStatsByIdServiceGrpcClient;
 import pb.category.VertxCategoryStatsByMerchantServiceGrpcClient;
+import pb.category.VertxCategoryStatsServiceGrpcClient;
 
+@Slf4j
+@RequiredArgsConstructor
 public class CategoryProxyHandler {
-    private final VertxCategoryQueryServiceGrpcClient queryClient;
-    private final VertxCategoryCommandServiceGrpcClient commandClient;
-    private final VertxCategoryStatsServiceGrpcClient statsClient;
-    private final VertxCategoryStatsByIdServiceGrpcClient statsByIdClient;
-    private final VertxCategoryStatsByMerchantServiceGrpcClient statsByMerchantClient;
+        private final VertxCategoryQueryServiceGrpcClient queryClient;
+        private final VertxCategoryCommandServiceGrpcClient commandClient;
+        private final VertxCategoryStatsServiceGrpcClient statsClient;
+        private final VertxCategoryStatsByIdServiceGrpcClient statsByIdClient;
+        private final VertxCategoryStatsByMerchantServiceGrpcClient statsByMerchantClient;
 
-    public CategoryProxyHandler(
-            VertxCategoryQueryServiceGrpcClient queryClient,
-            VertxCategoryCommandServiceGrpcClient commandClient,
-            VertxCategoryStatsServiceGrpcClient statsClient,
-            VertxCategoryStatsByIdServiceGrpcClient statsByIdClient,
-            VertxCategoryStatsByMerchantServiceGrpcClient statsByMerchantClient) {
-        this.queryClient = queryClient;
-        this.commandClient = commandClient;
-        this.statsClient = statsClient;
-        this.statsByIdClient = statsByIdClient;
-        this.statsByMerchantClient = statsByMerchantClient;
-    }
+        private static final String UPLOAD_DIRECTORY = "uploads/categories/";
 
-    // Standard Category Listings
-    public void findAll(RoutingContext ctx) {
-        var req = CategoryQuery.FindAllCategoryRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
+        // ==========================================
+        // QUERY ENDPOINTS
+        // ==========================================
 
-        queryClient.findAll(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findAll(RoutingContext ctx) {
+                var req = buildPaginationRequest(ctx);
+                queryClient.findAll(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findActive(RoutingContext ctx) {
-        var req = CategoryQuery.FindAllCategoryRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
+        public void findActive(RoutingContext ctx) {
+                var req = buildPaginationRequest(ctx);
+                queryClient.findByActive(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        queryClient.findByActive(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findTrashed(RoutingContext ctx) {
+                var req = buildPaginationRequest(ctx);
+                queryClient.findByTrashed(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findTrashed(RoutingContext ctx) {
-        var req = CategoryQuery.FindAllCategoryRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
+        public void findById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
 
-        queryClient.findByTrashed(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                queryClient.findById(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+        public void create(RoutingContext ctx) {
+                try {
+                        String name = GrpcGatewayUtils.getFormString(ctx, "name", "");
+                        String description = GrpcGatewayUtils.getFormString(ctx, "description", "");
+                        String slugCategory = GrpcGatewayUtils.getFormString(ctx, "slugCategory", "");
 
-        queryClient.findById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                        String imageUrl = "";
 
-    // Mutator Commands
-    public void create(RoutingContext ctx) {
-        JsonObject body = ctx.body().asJsonObject();
-        var req = CategoryCommand.CreateCategoryRequest.newBuilder()
-                .setName(body.getString("name", ""))
-                .setDescription(body.getString("description", ""))
-                .setImageCategory(body.getString("image_category", ""))
-                .build();
+                        FileUpload imageFile = GrpcGatewayUtils.getFileUpload(ctx, "imageFile");
 
-        commandClient.create(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 201))
-                .onFailure(ctx::fail);
-    }
+                        if (imageFile != null) {
+                                try {
+                                        imageUrl = storeUploadedFile(imageFile);
+                                } catch (IOException e) {
+                                        ctx.fail(new BadRequestException(
+                                                        "Failed to process uploaded file: " + e.getMessage()));
+                                        return;
+                                }
+                        }
 
-    public void update(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        JsonObject body = ctx.body().asJsonObject();
-        var req = CategoryCommand.UpdateCategoryRequest.newBuilder()
-                .setCategoryId(id)
-                .setName(body.getString("name", ""))
-                .setDescription(body.getString("description", ""))
-                .setImageCategory(body.getString("image_category", ""))
-                .build();
+                        var req = CategoryCommand.CreateCategoryRequest.newBuilder()
+                                        .setName(name)
+                                        .setDescription(description)
+                                        .setSlugCategory(slugCategory)
+                                        .setImageCategory(imageUrl)
+                                        .build();
 
-        commandClient.update(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                        commandClient.create(req)
+                                        .onSuccess(resp -> sendResponse(ctx, resp, 201))
+                                        .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
 
-    public void trash(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+                } catch (BadRequestException e) {
+                        ctx.fail(e);
+                }
+        }
 
-        commandClient.trashedCategory(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void update(RoutingContext ctx) {
+                try {
+                        int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
 
-    public void restore(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+                        String name = GrpcGatewayUtils.getFormString(ctx, "name", "");
+                        String description = GrpcGatewayUtils.getFormString(ctx, "description", "");
+                        String slugCategory = GrpcGatewayUtils.getFormString(ctx, "slugCategory", "");
 
-        commandClient.restoreCategory(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                        String existingImageUrl = GrpcGatewayUtils.getFormString(ctx, "image_category", "");
+                        String imageUrl = existingImageUrl;
 
-    public void deletePermanent(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+                        FileUpload imageFile = GrpcGatewayUtils.getFileUpload(ctx, "imageFile");
 
-        commandClient.deleteCategoryPermanent(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                        if (imageFile != null) {
+                                try {
+                                        imageUrl = storeUploadedFile(imageFile);
+                                } catch (IOException e) {
+                                        ctx.fail(new BadRequestException(
+                                                        "Failed to process uploaded file: " + e.getMessage()));
+                                        return;
+                                }
+                        }
 
-    public void restoreAll(RoutingContext ctx) {
-        commandClient.restoreAllCategory(com.google.protobuf.Empty.getDefaultInstance())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                        var req = CategoryCommand.UpdateCategoryRequest.newBuilder()
+                                        .setCategoryId(id)
+                                        .setName(name)
+                                        .setDescription(description)
+                                        .setSlugCategory(slugCategory)
+                                        .setImageCategory(imageUrl)
+                                        .build();
 
-    public void deleteAll(RoutingContext ctx) {
-        commandClient.deleteAllCategoryPermanent(com.google.protobuf.Empty.getDefaultInstance())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                        commandClient.update(req)
+                                        .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                        .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
 
-    // General Stats Mappings
-    public void findMonthlyTotalPrices(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-        int month = ctx.queryParams().contains("month") ? Integer.parseInt(ctx.queryParams().get("month")) : 0;
+                } catch (BadRequestException e) {
+                        ctx.fail(e);
+                }
+        }
 
-        var req = CategoryCommon.FindYearMonthTotalPrices.newBuilder()
-                .setYear(year)
-                .setMonth(month)
-                .build();
+        public void trash(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+                commandClient.trashedCategory(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findMonthlyTotalPrices(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void restore(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+                commandClient.restoreCategory(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearlyTotalPrices(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void deletePermanent(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = CategoryCommon.FindByIdCategoryRequest.newBuilder().setId(id).build();
+                commandClient.deleteCategoryPermanent(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = CategoryCommon.FindYearTotalPrices.newBuilder()
-                .setYear(year)
-                .build();
+        public void restoreAll(RoutingContext ctx) {
+                commandClient.restoreAllCategory(com.google.protobuf.Empty.getDefaultInstance())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findYearlyTotalPrices(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void deleteAll(RoutingContext ctx) {
+                commandClient.deleteAllCategoryPermanent(com.google.protobuf.Empty.getDefaultInstance())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findMonthPrice(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void findMonthlyTotalPrices(RoutingContext ctx) {
+                int year = GrpcGatewayUtils.getQueryInt(ctx, "year", 0);
+                int month = GrpcGatewayUtils.getQueryInt(ctx, "month", 0);
 
-        var req = CategoryCommon.FindYearCategory.newBuilder()
-                .setYear(year)
-                .build();
+                statsClient.findMonthlyTotalPrices(CategoryCommon.FindYearMonthTotalPrices.newBuilder()
+                                .setYear(year).setMonth(month).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findMonthPrice(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findYearlyTotalPrices(RoutingContext ctx) {
+                statsClient.findYearlyTotalPrices(CategoryCommon.FindYearTotalPrices.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearPrice(RoutingContext ctx) {
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void findMonthPrice(RoutingContext ctx) {
+                statsClient.findMonthPrice(CategoryCommon.FindYearCategory.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = CategoryCommon.FindYearCategory.newBuilder()
-                .setYear(year)
-                .build();
+        public void findYearPrice(RoutingContext ctx) {
+                statsClient.findYearPrice(CategoryCommon.FindYearCategory.newBuilder()
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsClient.findYearPrice(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findMonthlyTotalPricesById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByIdClient.findMonthlyTotalPricesById(CategoryCommon.FindYearMonthTotalPriceById.newBuilder()
+                                .setCategoryId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                .setMonth(GrpcGatewayUtils.getQueryInt(ctx, "month", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    // Stats By Category ID
-    public void findMonthlyTotalPricesById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-        int month = ctx.queryParams().contains("month") ? Integer.parseInt(ctx.queryParams().get("month")) : 0;
+        public void findYearlyTotalPricesById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByIdClient.findYearlyTotalPricesById(CategoryCommon.FindYearTotalPriceById.newBuilder()
+                                .setCategoryId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = CategoryCommon.FindYearMonthTotalPriceById.newBuilder()
-                .setCategoryId(id)
-                .setYear(year)
-                .setMonth(month)
-                .build();
+        public void findMonthPriceById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByIdClient.findMonthPriceById(CategoryCommon.FindYearCategoryById.newBuilder()
+                                .setCategoryId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsByIdClient.findMonthlyTotalPricesById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findYearPriceById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByIdClient.findYearPriceById(CategoryCommon.FindYearCategoryById.newBuilder()
+                                .setCategoryId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findYearlyTotalPricesById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void findMonthlyTotalPricesByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByMerchantClient
+                                .findMonthlyTotalPricesByMerchant(CategoryCommon.FindYearMonthTotalPriceByMerchant
+                                                .newBuilder()
+                                                .setMerchantId(id)
+                                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0))
+                                                .setMonth(GrpcGatewayUtils.getQueryInt(ctx, "month", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = CategoryCommon.FindYearTotalPriceById.newBuilder()
-                .setCategoryId(id)
-                .setYear(year)
-                .build();
+        public void findYearlyTotalPricesByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByMerchantClient
+                                .findYearlyTotalPricesByMerchant(CategoryCommon.FindYearTotalPriceByMerchant
+                                                .newBuilder()
+                                                .setMerchantId(id)
+                                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        statsByIdClient.findYearlyTotalPricesById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findMonthPriceByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByMerchantClient.findMonthPriceByMerchant(CategoryCommon.FindYearCategoryByMerchant.newBuilder()
+                                .setMerchantId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findMonthPriceById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+        public void findYearPriceByMerchant(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                statsByMerchantClient.findYearPriceByMerchant(CategoryCommon.FindYearCategoryByMerchant.newBuilder()
+                                .setMerchantId(id)
+                                .setYear(GrpcGatewayUtils.getQueryInt(ctx, "year", 0)).build())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        var req = CategoryCommon.FindYearCategoryById.newBuilder()
-                .setCategoryId(id)
-                .setYear(year)
-                .build();
+        private String storeUploadedFile(FileUpload fileUpload) throws IOException {
+                Files.createDirectories(Path.of(UPLOAD_DIRECTORY));
 
-        statsByIdClient.findMonthPriceById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                String originalName = fileUpload.fileName();
+                String uniqueName = System.currentTimeMillis() + "_" + originalName;
+                Path target = Path.of(UPLOAD_DIRECTORY + uniqueName);
 
-    public void findYearPriceById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
+                Files.move(Path.of(fileUpload.uploadedFileName()), target,
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 
-        var req = CategoryCommon.FindYearCategoryById.newBuilder()
-                .setCategoryId(id)
-                .setYear(year)
-                .build();
+                return "/downloads/" + uniqueName;
+        }
 
-        statsByIdClient.findYearPriceById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    // Stats By Merchant ID
-    public void findMonthlyTotalPricesByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-        int month = ctx.queryParams().contains("month") ? Integer.parseInt(ctx.queryParams().get("month")) : 0;
-
-        var req = CategoryCommon.FindYearMonthTotalPriceByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .setMonth(month)
-                .build();
-
-        statsByMerchantClient.findMonthlyTotalPricesByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void findYearlyTotalPricesByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-
-        var req = CategoryCommon.FindYearTotalPriceByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .build();
-
-        statsByMerchantClient.findYearlyTotalPricesByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void findMonthPriceByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-
-        var req = CategoryCommon.FindYearCategoryByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .build();
-
-        statsByMerchantClient.findMonthPriceByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    public void findYearPriceByMerchant(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        int year = ctx.queryParams().contains("year") ? Integer.parseInt(ctx.queryParams().get("year")) : 0;
-
-        var req = CategoryCommon.FindYearCategoryByMerchant.newBuilder()
-                .setMerchantId(id)
-                .setYear(year)
-                .build();
-
-        statsByMerchantClient.findYearPriceByMerchant(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
-
-    private void sendResponse(RoutingContext ctx, com.google.protobuf.MessageOrBuilder proto, int defaultStatus) {
-        JsonObject json = ProtoMapper.toJson(proto);
-        int status = json.getInteger("status", defaultStatus);
-        ctx.response()
-                .setStatusCode(status == 0 ? defaultStatus : status)
-                .putHeader("Content-Type", "application/json")
-                .end(json.encode());
-    }
+        private CategoryQuery.FindAllCategoryRequest buildPaginationRequest(RoutingContext ctx) {
+                return CategoryQuery.FindAllCategoryRequest.newBuilder()
+                                .setSearch(GrpcGatewayUtils.getQueryString(ctx, "search", ""))
+                                .setPage(GrpcGatewayUtils.getQueryInt(ctx, "page", 1))
+                                .setPageSize(GrpcGatewayUtils.getQueryInt(ctx, "pageSize", 10))
+                                .build();
+        }
 }

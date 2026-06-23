@@ -15,6 +15,9 @@ import io.example.banner.service.BannerCommandService;
 import io.example.banner.service.BannerQueryService;
 import io.example.banner.service.impl.BannerCommandServiceImpl;
 import io.example.banner.service.impl.BannerQueryServiceImpl;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -34,17 +37,18 @@ public class BannerVerticle extends AbstractVerticle {
   private static final Logger log = LoggerFactory.getLogger(BannerVerticle.class);
 
   private TelemetryConfig telemetryConfig;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5432)
-            .put("database", "vertxdb")
-            .put("user", "vertx")
-            .put("password", "vertx")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
+            .put("user", "DRAGON")
+            .put("password", "DRAGON")
             .put("pool_size", 5))
         .put("grpc_port", 8082)
         .put("service.name", "banner-service");
@@ -89,9 +93,12 @@ public class BannerVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
     
-    BannerQueryRepository queryRepo = new BannerQueryRepositoryImpl(pool);
-    BannerCommandRepository cmdRepo = new BannerCommandRepositoryImpl(pool);
+    BannerQueryRepository queryRepo = new BannerQueryRepositoryImpl(chaosPool);
+    BannerCommandRepository cmdRepo = new BannerCommandRepositoryImpl(chaosPool);
 
     // 3. Initialize Caching
     RedisAPI redisAPI = RedisConfig.createClient(vertx);
@@ -133,7 +140,7 @@ public class BannerVerticle extends AbstractVerticle {
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

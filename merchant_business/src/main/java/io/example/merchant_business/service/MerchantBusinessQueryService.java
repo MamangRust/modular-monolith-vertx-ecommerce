@@ -1,16 +1,17 @@
 package io.example.merchant_business.service;
 
-import java.util.List;
-import io.example.common.model.ApiResponse;
-import io.example.common.model.ApiResponsePagination;
+import io.example.common.domain.PagedResult;
+import io.example.merchant_business.domain.requests.FindAllMerchantBusinessRequest;
 import io.example.merchant_business.model.MerchantBusinessResponse;
 import io.example.merchant_business.model.MerchantBusinessResponseDeleteAt;
 import io.vertx.core.Future;
-import pb.merchant.MerchantQuery.FindAllMerchantRequest;
 
 public interface MerchantBusinessQueryService {
-  Future<ApiResponsePagination<List<MerchantBusinessResponse>>> getAll(FindAllMerchantRequest req);
-  Future<ApiResponsePagination<List<MerchantBusinessResponseDeleteAt>>> getActive(FindAllMerchantRequest req);
-  Future<ApiResponsePagination<List<MerchantBusinessResponseDeleteAt>>> getTrashed(FindAllMerchantRequest req);
-  Future<ApiResponse<MerchantBusinessResponse>> getById(Long id);
+  Future<PagedResult<MerchantBusinessResponse>> getAll(FindAllMerchantBusinessRequest req);
+
+  Future<PagedResult<MerchantBusinessResponseDeleteAt>> getActive(FindAllMerchantBusinessRequest req);
+
+  Future<PagedResult<MerchantBusinessResponseDeleteAt>> getTrashed(FindAllMerchantBusinessRequest req);
+
+  Future<MerchantBusinessResponse> getById(Long id);
 }

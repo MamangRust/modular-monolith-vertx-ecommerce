@@ -29,6 +29,9 @@ import io.vertx.grpc.client.GrpcClient;
 import io.vertx.grpc.server.GrpcServer;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.redis.client.RedisAPI;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
@@ -39,15 +42,16 @@ public class ReviewDetailVerticle extends AbstractVerticle {
 
   private TelemetryConfig telemetryConfig;
   private GrpcClient grpcClient;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5446)
-            .put("database", "ecommerce_review_detail")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
             .put("user", "DRAGON")
             .put("password", "DRAGON")
             .put("pool_size", 5))
@@ -69,11 +73,11 @@ public class ReviewDetailVerticle extends AbstractVerticle {
   @Override
   public void start(Promise<Void> startPromise) {
     JsonObject rawConfig = config();
-    
+
     // 1. Initialize Telemetry
     JsonObject telConfig = rawConfig.copy();
     if (!telConfig.containsKey("service.name")) {
-        telConfig.put("service.name", "review-detail-service");
+      telConfig.put("service.name", "review-detail-service");
     }
     telemetryConfig = new TelemetryConfig(telConfig);
     OpenTelemetry openTelemetry = telemetryConfig.initialize();
@@ -94,15 +98,18 @@ public class ReviewDetailVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
-    
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
+
     // 3. Initialize downstream gRPC client pool
     grpcClient = GrpcClient.client(vertx);
     SocketAddress addrReview = resolveGrpcAddress("REVIEW", "review", 50061);
 
     var reviewQueryClient = new pb.review.VertxReviewQueryServiceGrpcClient(grpcClient, addrReview);
 
-    ReviewDetailQueryRepository queryRepo = new ReviewDetailQueryRepositoryImpl(pool);
-    ReviewDetailCommandRepository cmdRepo = new ReviewDetailCommandRepositoryImpl(pool);
+    ReviewDetailQueryRepository queryRepo = new ReviewDetailQueryRepositoryImpl(chaosPool);
+    ReviewDetailCommandRepository cmdRepo = new ReviewDetailCommandRepositoryImpl(chaosPool);
     ReviewQueryRepository reviewRepo = new ReviewQueryRepositoryImpl(reviewQueryClient);
 
     // 4. Initialize Caching
@@ -111,12 +118,13 @@ public class ReviewDetailVerticle extends AbstractVerticle {
 
     // 5. Initialize Services
     ReviewDetailQueryService queryService = new ReviewDetailQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    ReviewDetailCommandService cmdService = new ReviewDetailCommandServiceImpl(cmdRepo, reviewRepo, redisService, tracingMetrics);
+    ReviewDetailCommandService cmdService = new ReviewDetailCommandServiceImpl(cmdRepo, queryRepo, reviewRepo,
+        redisService, tracingMetrics);
 
     // 6. Initialize Handlers
     var queryHandler = new ReviewDetailQueryHandler(queryService);
     var cmdHandler = new ReviewDetailCommandHandler(cmdService);
-    
+
     int port = cfg.getGrpcPort();
 
     startGrpcServer(queryHandler, cmdHandler, port)
@@ -158,14 +166,15 @@ public class ReviewDetailVerticle extends AbstractVerticle {
     return SocketAddress.inetSocketAddress(port, host);
   }
 
-  private Future<Void> startGrpcServer(ReviewDetailQueryHandler queryHandler, ReviewDetailCommandHandler cmdHandler, int grpcPort) {
+  private Future<Void> startGrpcServer(ReviewDetailQueryHandler queryHandler, ReviewDetailCommandHandler cmdHandler,
+      int grpcPort) {
     GrpcServer grpcServer = GrpcServer.server(vertx);
 
     queryHandler.bindAll(grpcServer);
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

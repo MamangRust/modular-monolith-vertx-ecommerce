@@ -3,26 +3,24 @@ package io.example.category.repository.impl;
 import java.util.ArrayList;
 import java.util.List;
 
-import io.example.common.model.PagedResult;
+import io.example.common.domain.PagedResult;
 import io.example.category.model.Category;
 import io.example.category.repository.CategoryQueryRepository;
+import io.example.category.domain.requests.FindAllCategoriesRequest;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
-import pb.category.CategoryQuery;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
 
     private final Pool client;
 
-    public CategoryQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<PagedResult<Category>> getCategories(CategoryQuery.FindAllCategoryRequest req) {
+    public Future<PagedResult<Category>> getCategories(FindAllCategoriesRequest req) {
         int page = req.getPage() > 0 ? req.getPage() : 0;
         int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
         int offset = page * pageSize;
@@ -55,7 +53,7 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
     }
 
     @Override
-    public Future<PagedResult<Category>> getCategoriesActive(CategoryQuery.FindAllCategoryRequest req) {
+    public Future<PagedResult<Category>> getCategoriesActive(FindAllCategoriesRequest req) {
         int page = req.getPage() > 0 ? req.getPage() : 0;
         int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
         int offset = page * pageSize;
@@ -89,7 +87,7 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
     }
 
     @Override
-    public Future<PagedResult<Category>> getCategoriesTrashed(CategoryQuery.FindAllCategoryRequest req) {
+    public Future<PagedResult<Category>> getCategoriesTrashed(FindAllCategoriesRequest req) {
         int page = req.getPage() > 0 ? req.getPage() : 0;
         int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
         int offset = page * pageSize;
@@ -165,7 +163,8 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
             if (total == 0) {
                 try {
                     total = row.getInteger("total_count");
-                } catch (Exception ignored) {}
+                } catch (Exception ignored) {
+                }
             }
         }
         return new PagedResult<>(list, total);

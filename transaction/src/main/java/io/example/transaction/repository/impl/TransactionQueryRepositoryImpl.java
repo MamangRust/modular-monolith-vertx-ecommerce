@@ -3,9 +3,9 @@ package io.example.transaction.repository.impl;
 import java.util.ArrayList;
 import java.util.List;
 
-import io.example.common.model.PagedResult;
-import io.example.transaction.model.FindAllTransaction;
-import io.example.transaction.model.FindAllTransactionByMerchant;
+import io.example.common.domain.PagedResult;
+import io.example.transaction.domain.requests.FindAllTransaction;
+import io.example.transaction.domain.requests.FindAllTransactionByMerchant;
 import io.example.transaction.model.Transaction;
 import io.example.transaction.repository.TransactionQueryRepository;
 import io.vertx.core.Future;
@@ -13,13 +13,11 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class TransactionQueryRepositoryImpl implements TransactionQueryRepository {
     private final Pool client;
-
-    public TransactionQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<PagedResult<Transaction>> getTransactions(FindAllTransaction req) {
@@ -111,6 +109,18 @@ public class TransactionQueryRepositoryImpl implements TransactionQueryRepositor
                                 FROM transactions WHERE order_id = $1 AND deleted_at IS NULL;
                                 """)
                 .execute(Tuple.of(orderId))
+                .map(rows -> rows.iterator().hasNext() ? Transaction.fromRow(rows.iterator().next()) : null);
+    }
+
+    @Override
+    public Future<Transaction> findByTrashedId(Long transactionId) {
+        return client
+                .preparedQuery(
+                        """
+                                SELECT transaction_id, order_id, merchant_id, payment_method, amount, payment_status, created_at, updated_at, deleted_at
+                                FROM transactions WHERE transaction_id = $1 AND deleted_at IS NOT NULL;
+                                """)
+                .execute(Tuple.of(transactionId))
                 .map(rows -> rows.iterator().hasNext() ? Transaction.fromRow(rows.iterator().next()) : null);
     }
 

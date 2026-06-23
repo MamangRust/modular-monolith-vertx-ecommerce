@@ -1,21 +1,19 @@
 package io.example.shipping_address.repository.impl;
 
-import io.example.shipping_address.model.CreateShippingAddressRequest;
+import io.example.shipping_address.domain.requests.CreateShippingAddressRequest;
 import io.example.shipping_address.model.ShippingAddress;
-import io.example.shipping_address.model.UpdateShippingAddressRequest;
+import io.example.shipping_address.domain.requests.UpdateShippingAddressRequest;
 import io.example.shipping_address.repository.ShippingAddressCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ShippingAddressCommandRepositoryImpl implements ShippingAddressCommandRepository {
     private final Pool client;
-
-    public ShippingAddressCommandRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<ShippingAddress> createShippingAddress(CreateShippingAddressRequest req) {
@@ -110,7 +108,7 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     @Override
-    public Future<ShippingAddress> trashShippingAddress(Integer shippingAddressId) {
+    public Future<ShippingAddress> trashShippingAddress(Long shippingAddressId) {
         return client
                 .preparedQuery("""
                         UPDATE shipping_addresses
@@ -138,7 +136,7 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     @Override
-    public Future<ShippingAddress> restoreShippingAddress(Integer shippingAddressId) {
+    public Future<ShippingAddress> restoreShippingAddress(Long shippingAddressId) {
         return client
                 .preparedQuery("""
                         UPDATE shipping_addresses
@@ -166,7 +164,7 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
     }
 
     @Override
-    public Future<Void> deleteShippingAddressPermanently(Integer shippingAddressId) {
+    public Future<Boolean> deleteShippingAddressPermanently(Long shippingAddressId) {
         return client
                 .preparedQuery("""
                         DELETE FROM shipping_addresses
@@ -175,11 +173,11 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
                             AND deleted_at IS NOT NULL
                         """)
                 .execute(Tuple.of(shippingAddressId))
-                .mapEmpty();
+                .map(row -> row.rowCount() > 0);
     }
 
     @Override
-    public Future<Void> deleteByOrderIDPermanent(Integer orderId) {
+    public Future<Boolean> deleteByOrderIDPermanent(Long orderId) {
         return client
                 .preparedQuery("""
                         DELETE FROM shipping_addresses
@@ -187,11 +185,11 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
                             order_id = $1
                         """)
                 .execute(Tuple.of(orderId))
-                .mapEmpty();
+                .map(row -> row.rowCount() > 0);
     }
 
     @Override
-    public Future<Void> restoreAllShippingAddress() {
+    public Future<Integer> restoreAllShippingAddress() {
         return client
                 .preparedQuery("""
                         UPDATE shipping_addresses
@@ -201,15 +199,15 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
                             deleted_at IS NOT NULL
                         """)
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     @Override
-    public Future<Void> deleteAllPermanentShippingAddress() {
+    public Future<Integer> deleteAllPermanentShippingAddress() {
         return client
                 .preparedQuery("DELETE FROM shipping_addresses WHERE deleted_at IS NOT NULL")
                 .execute()
-                .mapEmpty();
+                .map(RowSet::rowCount);
     }
 
     private ShippingAddress mapSingleOrNull(RowSet<Row> rows) {

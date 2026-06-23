@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.common.domain.PagedResult;
+import io.example.order.domain.requests.FindAllOrderByMerchantRequest;
+import io.example.order.domain.requests.FindAllOrderRequest;
 import io.example.order.model.Order;
 import io.example.order.repository.OrderQueryRepository;
 import io.vertx.core.Future;
@@ -11,18 +13,17 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class OrderQueryRepositoryImpl implements OrderQueryRepository {
     private final Pool client;
 
-    public OrderQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
-
     @Override
-    public Future<PagedResult<Order>> getOrders(String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
-        String normalizedSearch = (search == null || search.isBlank()) ? null : search;
+    public Future<PagedResult<Order>> getOrders(FindAllOrderRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+        String normalizedSearch = (req.getSearch() == null || req.getSearch().isBlank()) ? null
+                : req.getSearch();
 
         return client.preparedQuery("""
                 SELECT
@@ -44,14 +45,15 @@ public class OrderQueryRepositoryImpl implements OrderQueryRepository {
                 LIMIT $2
                 OFFSET $3
                 """)
-                .execute(Tuple.of(normalizedSearch, pageSize, offset))
+                .execute(Tuple.of(normalizedSearch, req.getPageSize(), offset))
                 .map(this::mapPagedOrders);
     }
 
     @Override
-    public Future<PagedResult<Order>> getOrdersActive(String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
-        String normalizedSearch = (search == null || search.isBlank()) ? null : search;
+    public Future<PagedResult<Order>> getOrdersActive(FindAllOrderRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+        String normalizedSearch = (req.getSearch() == null || req.getSearch().isBlank()) ? null
+                : req.getSearch();
 
         return client.preparedQuery("""
                 SELECT
@@ -74,14 +76,15 @@ public class OrderQueryRepositoryImpl implements OrderQueryRepository {
                 LIMIT $2
                 OFFSET $3
                 """)
-                .execute(Tuple.of(normalizedSearch, pageSize, offset))
+                .execute(Tuple.of(normalizedSearch, req.getPageSize(), offset))
                 .map(this::mapPagedOrders);
     }
 
     @Override
-    public Future<PagedResult<Order>> getOrdersTrashed(String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
-        String normalizedSearch = (search == null || search.isBlank()) ? null : search;
+    public Future<PagedResult<Order>> getOrdersTrashed(FindAllOrderRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+        String normalizedSearch = (req.getSearch() == null || req.getSearch().isBlank()) ? null
+                : req.getSearch();
 
         return client.preparedQuery("""
                 SELECT
@@ -104,14 +107,15 @@ public class OrderQueryRepositoryImpl implements OrderQueryRepository {
                 LIMIT $2
                 OFFSET $3
                 """)
-                .execute(Tuple.of(normalizedSearch, pageSize, offset))
+                .execute(Tuple.of(normalizedSearch, req.getPageSize(), offset))
                 .map(this::mapPagedOrders);
     }
 
     @Override
-    public Future<PagedResult<Order>> getOrdersByMerchant(Integer merchantId, String search, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
-        String normalizedSearch = (search == null || search.isBlank()) ? null : search;
+    public Future<PagedResult<Order>> getOrdersByMerchant(FindAllOrderByMerchantRequest req) {
+        int offset = (req.getPage() > 0 ? req.getPage() - 1 : 0) * req.getPageSize();
+        String normalizedSearch = (req.getSearch() == null || req.getSearch().isBlank()) ? null
+                : req.getSearch();
 
         return client.preparedQuery("""
                 SELECT
@@ -134,7 +138,7 @@ public class OrderQueryRepositoryImpl implements OrderQueryRepository {
                 LIMIT $3
                 OFFSET $4
                 """)
-                .execute(Tuple.of(merchantId, normalizedSearch, pageSize, offset))
+                .execute(Tuple.of(req.getMerchantId().intValue(), normalizedSearch, req.getPageSize(), offset))
                 .map(this::mapPagedOrders);
     }
 
@@ -152,6 +156,26 @@ public class OrderQueryRepositoryImpl implements OrderQueryRepository {
                 WHERE
                     order_id = $1
                     AND deleted_at IS NULL
+                """)
+                .execute(Tuple.of(orderId))
+                .map(rows -> rows.iterator().hasNext() ? Order.fromRow(rows.iterator().next()) : null);
+    }
+
+    @Override
+    public Future<Order> findByTrashedId(Long orderId) {
+        return client.preparedQuery("""
+                SELECT
+                    order_id,
+                    user_id,
+                    merchant_id,
+                    total_price,
+                    created_at,
+                    updated_at,
+                    deleted_at
+                FROM orders
+                WHERE
+                    order_id = $1
+                    AND deleted_at IS NOT NULL
                 """)
                 .execute(Tuple.of(orderId))
                 .map(rows -> rows.iterator().hasNext() ? Order.fromRow(rows.iterator().next()) : null);

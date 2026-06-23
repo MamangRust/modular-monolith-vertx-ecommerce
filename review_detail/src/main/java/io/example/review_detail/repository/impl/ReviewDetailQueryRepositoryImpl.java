@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import io.example.common.domain.PagedResult;
-import io.example.review_detail.model.FindAllReview;
+import io.example.review_detail.domain.requests.FindAllReview;
 import io.example.review_detail.model.ReviewDetail;
 import io.example.review_detail.repository.ReviewDetailQueryRepository;
 import io.vertx.core.Future;
@@ -12,13 +12,11 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ReviewDetailQueryRepositoryImpl implements ReviewDetailQueryRepository {
     private final Pool client;
-
-    public ReviewDetailQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<PagedResult<ReviewDetail>> getReviewDetails(FindAllReview req) {
@@ -109,7 +107,7 @@ public class ReviewDetailQueryRepositoryImpl implements ReviewDetailQueryReposit
     }
 
     @Override
-    public Future<ReviewDetail> getReviewDetail(Integer reviewDetailId) {
+    public Future<ReviewDetail> getReviewDetail(Long reviewDetailId) {
         return client
                 .preparedQuery("""
                         SELECT
@@ -124,6 +122,28 @@ public class ReviewDetailQueryRepositoryImpl implements ReviewDetailQueryReposit
                         WHERE
                             review_detail_id = $1
                             AND deleted_at IS NULL
+                        """)
+                .execute(Tuple.of(reviewDetailId))
+                .map(this::mapSingleOrNull);
+    }
+
+    @Override
+    public Future<ReviewDetail> findByTrashedId(Long reviewDetailId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            review_detail_id,
+                            review_id,
+                            type,
+                            url,
+                            caption,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM review_details
+                        WHERE
+                            review_detail_id = $1
+                            AND deleted_at IS NOT NULL
                         """)
                 .execute(Tuple.of(reviewDetailId))
                 .map(this::mapSingleOrNull);

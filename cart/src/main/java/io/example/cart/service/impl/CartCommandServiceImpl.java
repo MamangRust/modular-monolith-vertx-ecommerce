@@ -1,70 +1,50 @@
 package io.example.cart.service.impl;
 
-import java.util.Objects;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.cart.model.CartCreateRecord;
+import io.example.cart.domain.requests.CartCreateRecord;
 import io.example.cart.model.CartResponse;
 import io.example.cart.repository.CartCommandRepository;
 import io.example.cart.repository.ProductQueryRepository;
 import io.example.cart.repository.UserQueryRepository;
 import io.example.cart.service.CartCommandService;
+import io.example.cart.domain.requests.CreateCartRequest;
+import io.example.cart.domain.requests.DeleteCartRequest;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.cart.CartCommand.CreateCartRequest;
-import pb.cart.CartCommand.DeleteCartRequest;
-import pb.cart.CartCommand.DeleteAllCartRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class CartCommandServiceImpl implements CartCommandService {
-    private static final Logger logger = LoggerFactory.getLogger(CartCommandServiceImpl.class);
-
-    private final CartCommandRepository repo;
-    private final ProductQueryRepository productRepo;
-    private final UserQueryRepository userRepo;
+    private final CartCommandRepository repository;
+    private final ProductQueryRepository productRepository;
+    private final UserQueryRepository userRepository;
     private final RedisService redis;
     private final TracingMetrics metrics;
 
-    private static final String CACHE_PREFIX = "cart:";
-
-    public CartCommandServiceImpl(
-            CartCommandRepository repo,
-            ProductQueryRepository productRepo,
-            UserQueryRepository userRepo,
-            RedisService redis,
-            TracingMetrics metrics) {
-        this.repo = repo;
-        this.productRepo = productRepo;
-        this.userRepo = userRepo;
-        this.redis = redis;
-        this.metrics = metrics;
+    private Future<Void> evict(Integer userId) {
+        return redis.deleteByPattern("cart:list:all:" + userId + ":*").<Void>mapEmpty();
     }
 
     @Override
-    public Future<ApiResponse<CartResponse>> create(CreateCartRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "CartCommandService.create",
+    public Future<CartResponse> create(CreateCartRequest req) {
+        var ctx = metrics.startSpan("CartCommandService.create",
                 Attributes.builder()
                         .put("cart.product_id", (long) req.getProductId())
                         .put("cart.user_id", (long) req.getUserId())
                         .build());
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
 
-        logger.info("Creating cart item: product={}, user={}", req.getProductId(), req.getUserId());
-
-        return productRepo.findById(req.getProductId())
+        return productRepository.findById(req.getProductId() != null ? req.getProductId().intValue() : 0)
                 .compose(product -> {
                     if (product == null) {
-                        return Future.failedFuture("Product not found");
+                        return Future.failedFuture(new NotFoundException("Product not found"));
                     }
-                    return userRepo.findById(req.getUserId())
+                    return userRepository.findById(req.getUserId())
                             .compose(userExists -> {
                                 if (!userExists) {
-                                    return Future.failedFuture("User not found");
+                                    return Future.failedFuture(new NotFoundException("User not found"));
                                 }
 
                                 CartCreateRecord record = CartCreateRecord.builder()
@@ -77,99 +57,63 @@ public class CartCommandServiceImpl implements CartCommandService {
                                         .weight(product.getWeight())
                                         .build();
 
-                                return repo.createCart(record);
+                                return repository.createCart(record);
                             });
                 })
-                .compose(created -> {
-                    span.setAttribute("cart.id", created.getCartId());
-                    String pattern = CACHE_PREFIX + "all:u:" + req.getUserId() + ":*";
-                    return redis.deleteByPattern(pattern)
-                            .onSuccess(count -> logger.debug("Invalidated {} cache keys for user {}", count, req.getUserId()))
-                            .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                            .map(created);
-                })
-                .map(created -> {
-                    metrics.completeSpanSuccess(tracingContext, "create", "Cart item created successfully");
-                    return ApiResponse.success("Cart item created successfully", CartResponse.from(created));
-                })
-                .recover(err -> {
-                    logger.error("Failed to create cart item", err);
-                    metrics.completeSpanError(tracingContext, "create", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<CartResponse>error("Failed to create cart item: " + err.getMessage()));
-                });
+                .compose(created -> evict(req.getUserId()).map(created))
+                .map(CartResponse::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "create", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "create", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<Boolean>> deletePermanent(DeleteCartRequest req) {
-        Long cartId = (long) req.getCartId();
+    public Future<Boolean> deletePermanent(DeleteCartRequest req) {
+        Long cartId = (req.getCartIds() != null && !req.getCartIds().isEmpty()) ? req.getCartIds().get(0) : null;
         Integer userId = req.getUserId();
-        
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "CartCommandService.deletePermanent",
+
+        var ctx = metrics.startSpan("CartCommandService.deletePermanent",
                 Attributes.builder()
-                        .put("cart.id", cartId)
-                        .put("cart.user_id", (long) userId)
+                        .put("cart.id", cartId != null ? cartId : 0L)
+                        .put("cart.user_id", userId != null ? (long) userId : 0L)
                         .build());
 
-        logger.info("Permanently deleting cart item: id={}, user={}", cartId, userId);
+        if (cartId == null || userId == null) {
+            return Future.failedFuture(new BadRequestException("Cart ID and User ID are required"));
+        }
 
-        return repo.deletePermanent(cartId, userId)
+        return repository.deletePermanent(cartId, userId)
                 .compose(deleted -> {
                     if (!deleted) {
-                        return Future.succeededFuture(false);
+                        return Future.failedFuture(new NotFoundException("Cart not found"));
                     }
-                    String pattern = CACHE_PREFIX + "all:u:" + userId + ":*";
-                    return redis.deleteByPattern(pattern)
-                            .onSuccess(count -> logger.debug("Invalidated {} cache keys for user {}", count, userId))
-                            .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                            .map(true);
+                    return evict(userId).map(true);
                 })
-                .map(deleted -> {
-                    metrics.completeSpanSuccess(tracingContext, "delete_permanent", "Cart item deleted successfully");
-                    return ApiResponse.success("Cart item deleted successfully", deleted);
-                })
-                .recover(err -> {
-                    logger.error("Failed to delete cart item: id={}", cartId, err);
-                    metrics.completeSpanError(tracingContext, "delete_permanent", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Boolean>error("Failed to delete cart item: " + err.getMessage()));
-                });
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deletePermanent", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "deletePermanent", e.getMessage()));
     }
 
     @Override
-    public Future<ApiResponse<Boolean>> deleteAll(DeleteAllCartRequest req) {
+    public Future<Boolean> deleteAll(DeleteCartRequest req) {
         Integer userId = req.getUserId();
-        java.util.List<Long> cartIds = req.getCartIdsList().stream().map(Integer::longValue).toList();
+        java.util.List<Long> cartIds = req.getCartIds();
 
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-                "CartCommandService.deleteAll",
+        var ctx = metrics.startSpan("CartCommandService.deleteAll",
                 Attributes.builder()
-                        .put("cart.user_id", (long) userId)
+                        .put("cart.user_id", userId != null ? (long) userId : 0L)
                         .build());
 
-        logger.info("Permanently deleting all requested cart items for user={}", userId);
+        if (userId == null || cartIds == null || cartIds.isEmpty()) {
+            return Future.failedFuture(new BadRequestException("User ID and Cart IDs are required"));
+        }
 
-        return repo.deleteAllPermanently(cartIds, userId)
+        return repository.deleteAllPermanently(cartIds, userId)
                 .compose(deleted -> {
                     if (!deleted) {
-                        return Future.succeededFuture(false);
+                        return Future.failedFuture(new NotFoundException("Carts not found"));
                     }
-                    String pattern = CACHE_PREFIX + "all:u:" + userId + ":*";
-                    return redis.deleteByPattern(pattern)
-                            .onSuccess(count -> logger.debug("Invalidated {} cache keys for user {}", count, userId))
-                            .onFailure(err -> logger.warn("Failed to invalidate cache: {}", err.getMessage()))
-                            .map(true);
+                    return evict(userId).map(true);
                 })
-                .map(deleted -> {
-                    metrics.completeSpanSuccess(tracingContext, "delete_all", "All requested cart items deleted successfully");
-                    return ApiResponse.success("All requested cart items deleted successfully", deleted);
-                })
-                .recover(err -> {
-                    logger.error("Failed to delete all requested cart items for user: {}", userId, err);
-                    metrics.completeSpanError(tracingContext, "delete_all", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Boolean>error("Failed to delete all requested cart items: " + err.getMessage()));
-                });
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deleteAll", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "deleteAll", e.getMessage()));
     }
 }

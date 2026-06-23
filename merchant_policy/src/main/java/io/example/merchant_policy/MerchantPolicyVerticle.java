@@ -17,6 +17,9 @@ import io.example.merchant_policy.service.MerchantPoliciesCommandService;
 import io.example.merchant_policy.service.MerchantPoliciesQueryService;
 import io.example.merchant_policy.service.impl.MerchantPoliciesCommandServiceImpl;
 import io.example.merchant_policy.service.impl.MerchantPoliciesQueryServiceImpl;
+import io.example.common.chaos.ChaosGrpcServerInterceptor;
+import io.example.common.chaos.ChaosManager;
+import io.example.common.chaos.ChaosSqlProxy;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.DeploymentOptions;
@@ -39,17 +42,18 @@ public class MerchantPolicyVerticle extends AbstractVerticle {
 
   private TelemetryConfig telemetryConfig;
   private GrpcClient grpcClient;
+  private ChaosManager chaosManager;
 
   public static void main(String[] args) {
     Vertx vertx = Vertx.vertx();
 
     JsonObject config = new JsonObject()
         .put("database", new JsonObject()
-            .put("host", "localhost")
-            .put("port", 5432)
-            .put("database", "vertxdb")
-            .put("user", "vertx")
-            .put("password", "vertx")
+            .put("host", "pgbouncer")
+            .put("port", 6432)
+            .put("database", "ECOMMERCE")
+            .put("user", "DRAGON")
+            .put("password", "DRAGON")
             .put("pool_size", 5))
         .put("grpc_port", 50068)
         .put("service.name", "merchant-policy-service");
@@ -94,14 +98,17 @@ public class MerchantPolicyVerticle extends AbstractVerticle {
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
 
     Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+    chaosManager = new ChaosManager();
+    chaosManager.startWatcher(vertx);
+    Pool chaosPool = ChaosSqlProxy.wrap(pool, chaosManager, vertx);
 
     // 3. Initialize unified gRPC Client pool & clients
     grpcClient = GrpcClient.client(vertx);
     SocketAddress addrMerchant = resolveGrpcAddress("MERCHANT", "merchant", 50055);
     var merchantQueryClient = new pb.merchant.VertxMerchantQueryServiceGrpcClient(grpcClient, addrMerchant);
 
-    MerchantPoliciesQueryRepository queryRepo = new MerchantPoliciesQueryRepositoryImpl(pool);
-    MerchantPoliciesCommandRepository cmdRepo = new MerchantPoliciesCommandRepositoryImpl(pool);
+    MerchantPoliciesQueryRepository queryRepo = new MerchantPoliciesQueryRepositoryImpl(chaosPool);
+    MerchantPoliciesCommandRepository cmdRepo = new MerchantPoliciesCommandRepositoryImpl(chaosPool);
     MerchantQueryRepository merchantRepo = new MerchantQueryRepositoryImpl(merchantQueryClient);
 
     // 4. Initialize Caching
@@ -110,7 +117,7 @@ public class MerchantPolicyVerticle extends AbstractVerticle {
 
     // 5. Initialize Services
     MerchantPoliciesQueryService queryService = new MerchantPoliciesQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-    MerchantPoliciesCommandService cmdService = new MerchantPoliciesCommandServiceImpl(cmdRepo, merchantRepo, redisService, tracingMetrics);
+    MerchantPoliciesCommandService cmdService = new MerchantPoliciesCommandServiceImpl(cmdRepo, queryRepo, merchantRepo, redisService, tracingMetrics);
 
     // 6. Initialize Handlers
     var queryHandler = new MerchantPolicyQueryHandler(queryService);
@@ -168,7 +175,7 @@ public class MerchantPolicyVerticle extends AbstractVerticle {
     cmdHandler.bindAll(grpcServer);
 
     return vertx.createHttpServer()
-        .requestHandler(grpcServer)
+        .requestHandler(new ChaosGrpcServerInterceptor(grpcServer, chaosManager, vertx))
         .listen(grpcPort)
         .mapEmpty();
   }

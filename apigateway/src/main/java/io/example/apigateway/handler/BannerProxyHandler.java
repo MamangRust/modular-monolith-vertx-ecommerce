@@ -1,147 +1,149 @@
 package io.example.apigateway.handler;
 
-import io.example.apigateway.utils.ProtoMapper;
+import static io.example.apigateway.utils.GrpcGatewayUtils.sendResponse;
+
+import io.example.apigateway.utils.GrpcGatewayUtils;
+import io.example.common.exception.api.BadRequestException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
+import lombok.RequiredArgsConstructor;
 import pb.banner.BannerCommon;
 import pb.banner.BannerQuery;
 import pb.banner.BannerCommand;
 import pb.banner.VertxBannerQueryServiceGrpcClient;
 import pb.banner.VertxBannerCommandServiceGrpcClient;
 
+@RequiredArgsConstructor
 public class BannerProxyHandler {
-    private final VertxBannerQueryServiceGrpcClient queryClient;
-    private final VertxBannerCommandServiceGrpcClient commandClient;
+        private final VertxBannerQueryServiceGrpcClient queryClient;
+        private final VertxBannerCommandServiceGrpcClient commandClient;
 
-    public BannerProxyHandler(VertxBannerQueryServiceGrpcClient queryClient, VertxBannerCommandServiceGrpcClient commandClient) {
-        this.queryClient = queryClient;
-        this.commandClient = commandClient;
-    }
+        public void findAll(RoutingContext ctx) {
+                var req = buildPaginationRequest(ctx);
+                queryClient.findAll(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findAll(RoutingContext ctx) {
-        var req = BannerQuery.FindAllBannerRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
+        public void findActive(RoutingContext ctx) {
+                var req = buildPaginationRequest(ctx);
+                queryClient.findByActive(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-        queryClient.findAll(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void findTrashed(RoutingContext ctx) {
+                var req = buildPaginationRequest(ctx);
+                queryClient.findByTrashed(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findActive(RoutingContext ctx) {
-        var req = BannerQuery.FindAllBannerRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
+        public void findById(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
 
-        queryClient.findByActive(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                queryClient.findById(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void findTrashed(RoutingContext ctx) {
-        var req = BannerQuery.FindAllBannerRequest.newBuilder()
-                .setSearch(ctx.queryParams().get("search") != null ? ctx.queryParams().get("search") : "")
-                .setPage(ctx.queryParams().contains("page") ? Integer.parseInt(ctx.queryParams().get("page")) : 1)
-                .setPageSize(ctx.queryParams().contains("pageSize") ? Integer.parseInt(ctx.queryParams().get("pageSize")) : 10)
-                .build();
+        public void create(RoutingContext ctx) {
+                JsonObject body = ctx.body().asJsonObject();
+                String name = GrpcGatewayUtils.getJsonString(body, "name", "");
 
-        queryClient.findByTrashed(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                if (name.isBlank()) {
+                        ctx.fail(new BadRequestException("Banner 'name' is required"));
+                        return;
+                }
 
-    public void findById(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
+                var req = BannerCommand.CreateBannerRequest.newBuilder()
+                                .setName(name)
+                                .setStartDate(GrpcGatewayUtils.getJsonString(body, "start_date", ""))
+                                .setEndDate(GrpcGatewayUtils.getJsonString(body, "end_date", ""))
+                                .setStartTime(GrpcGatewayUtils.getJsonString(body, "start_time", ""))
+                                .setEndTime(GrpcGatewayUtils.getJsonString(body, "end_time", ""))
+                                .setIsActive(body.getBoolean("is_active", false))
+                                .build();
 
-        queryClient.findById(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.create(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 201))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void create(RoutingContext ctx) {
-        JsonObject body = ctx.body().asJsonObject();
-        var req = BannerCommand.CreateBannerRequest.newBuilder()
-                .setName(body.getString("name", ""))
-                .setStartDate(body.getString("start_date", ""))
-                .setEndDate(body.getString("end_date", ""))
-                .setStartTime(body.getString("start_time", ""))
-                .setEndTime(body.getString("end_time", ""))
-                .setIsActive(body.getBoolean("is_active", false))
-                .build();
+        public void update(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                JsonObject body = ctx.body().asJsonObject();
+                String name = GrpcGatewayUtils.getJsonString(body, "name", "");
 
-        commandClient.create(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 201))
-                .onFailure(ctx::fail);
-    }
+                if (name.isBlank()) {
+                        ctx.fail(new BadRequestException("Banner 'name' is required"));
+                        return;
+                }
 
-    public void update(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        JsonObject body = ctx.body().asJsonObject();
-        var req = BannerCommand.UpdateBannerRequest.newBuilder()
-                .setBannerId(id)
-                .setName(body.getString("name", ""))
-                .setStartDate(body.getString("start_date", ""))
-                .setEndDate(body.getString("end_date", ""))
-                .setStartTime(body.getString("start_time", ""))
-                .setEndTime(body.getString("end_time", ""))
-                .setIsActive(body.getBoolean("is_active", false))
-                .build();
+                var req = BannerCommand.UpdateBannerRequest.newBuilder()
+                                .setBannerId(id)
+                                .setName(name)
+                                .setStartDate(GrpcGatewayUtils.getJsonString(body, "start_date", ""))
+                                .setEndDate(GrpcGatewayUtils.getJsonString(body, "end_date", ""))
+                                .setStartTime(GrpcGatewayUtils.getJsonString(body, "start_time", ""))
+                                .setEndTime(GrpcGatewayUtils.getJsonString(body, "end_time", ""))
+                                .setIsActive(body.getBoolean("is_active", false))
+                                .build();
 
-        commandClient.update(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.update(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void trash(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
+        public void trash(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
 
-        commandClient.trash(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.trash(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void restore(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
+        public void restore(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
 
-        commandClient.restore(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.restore(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void deletePermanent(RoutingContext ctx) {
-        int id = Integer.parseInt(ctx.pathParam("id"));
-        var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
+        public void deletePermanent(RoutingContext ctx) {
+                int id = GrpcGatewayUtils.getSafePathInt(ctx, "id");
+                var req = BannerCommon.FindByIdBannerRequest.newBuilder().setId(id).build();
 
-        commandClient.deletePermanent(req)
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+                commandClient.deletePermanent(req)
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void restoreAll(RoutingContext ctx) {
-        commandClient.restoreAll(com.google.protobuf.Empty.getDefaultInstance())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void restoreAll(RoutingContext ctx) {
+                commandClient.restoreAll(com.google.protobuf.Empty.getDefaultInstance())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    public void deleteAll(RoutingContext ctx) {
-        commandClient.deleteAll(com.google.protobuf.Empty.getDefaultInstance())
-                .onSuccess(resp -> sendResponse(ctx, resp, 200))
-                .onFailure(ctx::fail);
-    }
+        public void deleteAll(RoutingContext ctx) {
+                commandClient.deleteAll(com.google.protobuf.Empty.getDefaultInstance())
+                                .onSuccess(resp -> sendResponse(ctx, resp, 200))
+                                .onFailure(err -> GrpcGatewayUtils.handleError(ctx, err));
+        }
 
-    private void sendResponse(RoutingContext ctx, com.google.protobuf.MessageOrBuilder proto, int defaultStatus) {
-        JsonObject json = ProtoMapper.toJson(proto);
-        int status = json.getInteger("status", defaultStatus);
-        ctx.response()
-                .setStatusCode(status == 0 ? defaultStatus : status)
-                .putHeader("Content-Type", "application/json")
-                .end(json.encode());
-    }
+        private BannerQuery.FindAllBannerRequest buildPaginationRequest(RoutingContext ctx) {
+                int page = GrpcGatewayUtils.getQueryInt(ctx, "page", 1);
+                int pageSize = GrpcGatewayUtils.getQueryInt(ctx, "pageSize", 10);
+                String search = GrpcGatewayUtils.getQueryString(ctx, "search", "");
+
+                return BannerQuery.FindAllBannerRequest.newBuilder()
+                                .setSearch(search)
+                                .setPage(page)
+                                .setPageSize(pageSize)
+                                .build();
+        }
 }

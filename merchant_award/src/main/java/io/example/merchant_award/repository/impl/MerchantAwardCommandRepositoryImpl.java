@@ -2,21 +2,19 @@ package io.example.merchant_award.repository.impl;
 
 import java.time.LocalDate;
 
+import io.example.merchant_award.domain.requests.CreateMerchantAwardRequest;
+import io.example.merchant_award.domain.requests.UpdateMerchantAwardRequest;
 import io.example.merchant_award.model.MerchantAward;
 import io.example.merchant_award.repository.MerchantAwardCommandRepository;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
-import pb.merchant_award.MerchantAwardCommand.CreateMerchantAwardRequest;
-import pb.merchant_award.MerchantAwardCommand.UpdateMerchantAwardRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantAwardCommandRepositoryImpl implements MerchantAwardCommandRepository {
   private final Pool pool;
-
-  public MerchantAwardCommandRepositoryImpl(Pool pool) {
-    this.pool = pool;
-  }
 
   @Override
   public Future<MerchantAward> create(CreateMerchantAwardRequest req) {
@@ -52,7 +50,7 @@ public class MerchantAwardCommandRepositoryImpl implements MerchantAwardCommandR
         WHERE merchant_certification_id = $1 AND deleted_at IS NULL
         RETURNING *;
         """)
-        .execute(Tuple.of((long) req.getMerchantCertificationId(), req.getTitle(), req.getDescription(),
+        .execute(Tuple.of(req.getMerchantCertificationId(), req.getTitle(), req.getDescription(),
             req.getIssuedBy(), issueDate, expiryDate, req.getCertificateUrl()))
         .map(rows -> {
           if (rows.iterator().hasNext()) {

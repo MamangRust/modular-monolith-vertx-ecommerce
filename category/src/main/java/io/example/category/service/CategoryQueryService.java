@@ -1,16 +1,17 @@
 package io.example.category.service;
 
-import java.util.List;
-import io.example.common.model.ApiResponse;
-import io.example.common.model.ApiResponsePagination;
+import io.example.common.domain.PagedResult;
 import io.example.category.model.CategoryResponse;
 import io.example.category.model.CategoryResponseDeleteAt;
+import io.example.category.domain.requests.FindAllCategoriesRequest;
 import io.vertx.core.Future;
-import pb.category.CategoryQuery;
 
 public interface CategoryQueryService {
-    Future<ApiResponsePagination<List<CategoryResponse>>> getAll(CategoryQuery.FindAllCategoryRequest req);
-    Future<ApiResponsePagination<List<CategoryResponse>>> getActive(CategoryQuery.FindAllCategoryRequest req);
-    Future<ApiResponsePagination<List<CategoryResponseDeleteAt>>> getTrashed(CategoryQuery.FindAllCategoryRequest req);
-    Future<ApiResponse<CategoryResponse>> getById(Long id);
+    Future<PagedResult<CategoryResponse>> getAll(FindAllCategoriesRequest req);
+
+    Future<PagedResult<CategoryResponse>> getActive(FindAllCategoriesRequest req);
+
+    Future<PagedResult<CategoryResponseDeleteAt>> getTrashed(FindAllCategoriesRequest req);
+
+    Future<CategoryResponse> getById(Long id);
 }

@@ -1,58 +1,47 @@
 package io.example.merchant_award.service.impl;
 
-import java.util.Objects;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.exception.NotFoundException;
-import io.example.common.model.ApiResponse;
+import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
-import io.example.merchant_award.model.MerchantAward;
+import io.example.merchant_award.domain.requests.CreateMerchantAwardRequest;
+import io.example.merchant_award.domain.requests.UpdateMerchantAwardRequest;
 import io.example.merchant_award.model.MerchantAwardResponse;
 import io.example.merchant_award.model.MerchantAwardResponseDeleteAt;
 import io.example.merchant_award.repository.MerchantAwardCommandRepository;
+import io.example.merchant_award.repository.MerchantAwardQueryRepository;
 import io.example.merchant_award.repository.MerchantQueryRepository;
 import io.example.merchant_award.service.MerchantAwardCommandService;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.merchant_award.MerchantAwardCommand.CreateMerchantAwardRequest;
-import pb.merchant_award.MerchantAwardCommand.UpdateMerchantAwardRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class MerchantAwardCommandServiceImpl implements MerchantAwardCommandService {
   private static final Logger logger = LoggerFactory.getLogger(MerchantAwardCommandServiceImpl.class);
 
   private final MerchantAwardCommandRepository repo;
+  private final MerchantAwardQueryRepository queryRepository;
   private final MerchantQueryRepository merchantRepo;
   private final RedisService redis;
   private final TracingMetrics metrics;
 
   private static final String CACHE_PREFIX = "merchant_award:";
 
-  public MerchantAwardCommandServiceImpl(
-      MerchantAwardCommandRepository repo,
-      MerchantQueryRepository merchantRepo,
-      RedisService redis,
-      TracingMetrics metrics) {
-    this.repo = repo;
-    this.merchantRepo = merchantRepo;
-    this.redis = redis;
-    this.metrics = metrics;
+  private Future<Void> evict(Long id) {
+    return redis.delete(CACHE_PREFIX + "id:" + id).<Void>mapEmpty();
   }
 
   @Override
-  public Future<ApiResponse<MerchantAwardResponse>> create(CreateMerchantAwardRequest req) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantAwardCommandService.create",
+  public Future<MerchantAwardResponse> create(CreateMerchantAwardRequest req) {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.create",
         Attributes.builder()
             .put("award.merchant_id", (long) req.getMerchantId())
             .put("award.title", req.getTitle())
             .build());
-    Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-
-    logger.info("Creating award for merchant: {}", req.getMerchantId());
 
     return merchantRepo.findById(req.getMerchantId())
         .compose(exists -> {
@@ -61,191 +50,122 @@ public class MerchantAwardCommandServiceImpl implements MerchantAwardCommandServ
           }
           return repo.create(req);
         })
-        .map(mca -> {
-          if (mca == null) {
-            throw new RuntimeException("Failed to create award");
-          }
-          span.setAttribute("award.id", mca.getMerchantCertificationId());
-          metrics.completeSpanSuccess(tracingContext, "create", "Award created successfully");
-          return ApiResponse.success("Award created successfully", MerchantAwardResponse.from(mca));
-        })
-        .recover(err -> {
-          logger.error("Failed to create award", err);
-          metrics.completeSpanError(tracingContext, "create", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .map(MerchantAwardResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "create", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "create", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantAwardResponse>> update(UpdateMerchantAwardRequest req) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantAwardCommandService.update",
+  public Future<MerchantAwardResponse> update(UpdateMerchantAwardRequest req) {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.update",
         Attributes.builder()
-            .put("award.id", (long) req.getMerchantCertificationId())
+            .put("award.id", req.getMerchantCertificationId())
             .put("award.title", req.getTitle())
             .build());
-    Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
-
-    logger.info("Updating award: {}", req.getMerchantCertificationId());
-
-    String cacheKey = CACHE_PREFIX + "id:" + req.getMerchantCertificationId();
 
     return repo.update(req)
         .compose(mca -> {
           if (mca == null) {
-            return Future.failedFuture(new NotFoundException("Award not found with ID: " + req.getMerchantCertificationId()));
+            return Future
+                .failedFuture(new NotFoundException("Award not found with ID: " + req.getMerchantCertificationId()));
           }
-          return redis.delete(cacheKey).map(mca);
+          return evict(req.getMerchantCertificationId()).map(v -> mca);
         })
-        .map(mca -> {
-          metrics.completeSpanSuccess(tracingContext, "update", "Award updated successfully");
-          return ApiResponse.success("Award updated successfully", MerchantAwardResponse.from(mca));
-        })
-        .recover(err -> {
-          logger.error("Failed to update award", err);
-          metrics.completeSpanError(tracingContext, "update", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .map(MerchantAwardResponse::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "update", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "update", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantAwardResponseDeleteAt>> trash(Long id) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantAwardCommandService.trash",
-        Attributes.builder()
-            .put("award.id", id)
-            .build());
-
-    logger.info("Trashing award: {}", id);
-
-    String cacheKey = CACHE_PREFIX + "id:" + id;
+  public Future<MerchantAwardResponseDeleteAt> trash(Long id) {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.trash",
+        Attributes.builder().put("award.id", id).build());
 
     return repo.trash(id)
         .compose(mca -> {
           if (mca == null) {
             return Future.failedFuture(new NotFoundException("Award not found with ID: " + id));
           }
-          return redis.delete(cacheKey).map(mca);
+          return evict(id).map(v -> mca);
         })
-        .map(mca -> {
-          metrics.completeSpanSuccess(tracingContext, "trash", "Award trashed successfully");
-          return ApiResponse.success("Award trashed successfully", MerchantAwardResponseDeleteAt.from(mca));
-        })
-        .recover(err -> {
-          logger.error("Failed to trash award", err);
-          metrics.completeSpanError(tracingContext, "trash", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .map(MerchantAwardResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "trash", "Success"))
+        .onFailure(e -> metrics.completeSpanError(ctx, "trash", e.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<MerchantAwardResponseDeleteAt>> restore(Long id) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantAwardCommandService.restore",
-        Attributes.builder()
-            .put("award.id", id)
-            .build());
+  public Future<MerchantAwardResponseDeleteAt> restore(Long id) {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.restore",
+        Attributes.builder().put("award.id", id).build());
 
     logger.info("Restoring award: {}", id);
 
-    String cacheKey = CACHE_PREFIX + "id:" + id;
-
-    return repo.restore(id)
-        .compose(mca -> {
-          if (mca == null) {
-            return Future.failedFuture(new NotFoundException("Award not found with ID: " + id));
+    return queryRepository.findByTrashedId(id)
+        .compose(trashed -> {
+          if (trashed == null) {
+            return Future.failedFuture(new BadRequestException("Award not found or must be trashed first"));
           }
-          return redis.delete(cacheKey).map(mca);
+          return repo.restore(id);
         })
-        .map(mca -> {
-          metrics.completeSpanSuccess(tracingContext, "restore", "Award restored successfully");
-          return ApiResponse.success("Award restored successfully", MerchantAwardResponseDeleteAt.from(mca));
-        })
-        .recover(err -> {
-          logger.error("Failed to restore award", err);
-          metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
+        .compose(r -> {
+          if (r == null) {
+            return Future.failedFuture(new NotFoundException("Award not found"));
           }
-          return Future.failedFuture(err);
+          return evict(id).map(v -> r);
+        })
+        .map(MerchantAwardResponseDeleteAt::from)
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore", "Success"))
+        .onFailure(e -> {
+          logger.error("Failed to restore award", e);
+          metrics.completeSpanError(ctx, "restore", e.getMessage());
         });
   }
 
   @Override
-  public Future<ApiResponse<Boolean>> deletePermanent(Long id) {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan(
-        "MerchantAwardCommandService.deletePermanent",
-        Attributes.builder()
-            .put("award.id", id)
-            .build());
+  public Future<Void> deletePermanent(Long id) {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.deletePermanent",
+        Attributes.builder().put("award.id", id).build());
 
-    logger.info("Permanently deleting award: {}", id);
-
-    String cacheKey = CACHE_PREFIX + "id:" + id;
-
-    return repo.deletePermanent(id)
-        .compose(success -> {
-          if (!success) {
-            return Future.failedFuture(new NotFoundException("Award not found with ID: " + id));
+    return queryRepository.findByTrashedId(id)
+        .compose(trashed -> {
+          if (trashed == null) {
+            return Future.<Void>failedFuture(
+                new BadRequestException("Award not found or must be trashed before permanent deletion"));
           }
-          return redis.delete(cacheKey).map(true);
+          return repo.deletePermanent(id)
+              .compose(v -> evict(id));
         })
-        .map(success -> {
-          metrics.completeSpanSuccess(tracingContext, "delete_permanent", "Award permanently deleted");
-          return ApiResponse.success("Award permanently deleted", true);
-        })
-        .recover(err -> {
-          logger.error("Failed to permanently delete award", err);
-          metrics.completeSpanError(tracingContext, "delete_permanent", err.getMessage());
-          if (err instanceof NotFoundException) {
-            return Future.succeededFuture(ApiResponse.error(err.getMessage()));
-          }
-          return Future.failedFuture(err);
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "deletePermanent", "Award deleted permanently"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "deletePermanent", err.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Integer>> restoreAll() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("MerchantAwardCommandService.restoreAll");
-
-    logger.info("Restoring all trashed awards");
+  public Future<Void> restoreAll() {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.restoreAll");
 
     return repo.restoreAll()
-        .map(count -> {
-          metrics.completeSpanSuccess(tracingContext, "restore_all", "All awards restored");
-          return ApiResponse.success("All awards restored successfully", count);
+        .compose(count -> {
+          if (count == 0) {
+            return Future.<Void>failedFuture(new NotFoundException("No trashed awards found"));
+          }
+          return redis.delete(CACHE_PREFIX + "list:*").<Void>mapEmpty();
         })
-        .recover(err -> {
-          logger.error("Failed to restore all awards", err);
-          metrics.completeSpanError(tracingContext, "restore_all", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore_all", "Success"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "restore_all", err.getMessage()));
   }
 
   @Override
-  public Future<ApiResponse<Integer>> deleteAllPermanent() {
-    TracingMetrics.TracingContext tracingContext = metrics.startSpan("MerchantAwardCommandService.deleteAllPermanent");
-
-    logger.info("Permanently deleting all trashed awards");
+  public Future<Void> deleteAllPermanent() {
+    var ctx = metrics.startSpan("MerchantAwardCommandService.deleteAllPermanent");
 
     return repo.deleteAllPermanent()
-        .map(count -> {
-          metrics.completeSpanSuccess(tracingContext, "delete_all_permanent", "All trashed awards deleted");
-          return ApiResponse.success("All trashed awards deleted permanently", count);
+        .compose(count -> {
+          if (count == 0) {
+            return Future.<Void>failedFuture(new NotFoundException("No trashed awards found"));
+          }
+          return redis.delete(CACHE_PREFIX + "list:*").<Void>mapEmpty();
         })
-        .recover(err -> {
-          logger.error("Failed to delete all trashed awards", err);
-          metrics.completeSpanError(tracingContext, "delete_all_permanent", err.getMessage());
-          return Future.failedFuture(err);
-        });
+        .onSuccess(v -> metrics.completeSpanSuccess(ctx, "delete_all_permanent", "Success"))
+        .onFailure(err -> metrics.completeSpanError(ctx, "delete_all_permanent", err.getMessage()));
   }
 }

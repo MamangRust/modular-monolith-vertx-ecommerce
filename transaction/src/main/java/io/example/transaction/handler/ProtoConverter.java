@@ -1,7 +1,14 @@
 package io.example.transaction.handler;
 
 import com.google.protobuf.StringValue;
-import io.example.transaction.model.*;
+
+import io.example.transaction.model.Transaction;
+import io.example.transaction.model.TransactionMonthlyAmountFailed;
+import io.example.transaction.model.TransactionMonthlyAmountSuccess;
+import io.example.transaction.model.TransactionMonthlyMethod;
+import io.example.transaction.model.TransactionYearlyAmountFailed;
+import io.example.transaction.model.TransactionYearlyAmountSuccess;
+import io.example.transaction.model.TransactionYearlyMethod;
 import pb.transaction.TransactionCommon;
 
 public class ProtoConverter {
@@ -26,7 +33,8 @@ public class ProtoConverter {
         if (tx == null) {
             return null;
         }
-        TransactionCommon.TransactionResponseDeleteAt.Builder builder = TransactionCommon.TransactionResponseDeleteAt.newBuilder()
+        TransactionCommon.TransactionResponseDeleteAt.Builder builder = TransactionCommon.TransactionResponseDeleteAt
+                .newBuilder()
                 .setId(tx.getTransactionId().intValue())
                 .setOrderId(tx.getOrderId() != null ? tx.getOrderId() : 0)
                 .setMerchantId(tx.getMerchantId() != null ? tx.getMerchantId() : 0)

@@ -5,38 +5,31 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.example.common.exception.NotFoundException;
-import io.example.common.model.ApiResponse;
-import io.example.common.observability.TracingMetrics;
-import io.example.common.service.RedisService;
+import io.example.banner.domain.requests.CreateBannerRequest;
+import io.example.banner.domain.requests.UpdateBannerRequest;
 import io.example.banner.model.Banner;
 import io.example.banner.model.BannerResponse;
 import io.example.banner.model.BannerResponseDeleteAt;
 import io.example.banner.repository.BannerCommandRepository;
 import io.example.banner.service.BannerCommandService;
+import io.example.common.domain.ApiResponse;
+import io.example.common.exception.grpc.NotFoundException;
+import io.example.common.observability.TracingMetrics;
+import io.example.common.service.RedisService;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import pb.banner.BannerCommand.CreateBannerRequest;
-import pb.banner.BannerCommand.UpdateBannerRequest;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class BannerCommandServiceImpl implements BannerCommandService {
     private static final Logger logger = LoggerFactory.getLogger(BannerCommandServiceImpl.class);
-
     private final BannerCommandRepository repo;
+
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final String CACHE_PREFIX = "banner:";
-
-    public BannerCommandServiceImpl(
-            BannerCommandRepository repo,
-            RedisService redis,
-            TracingMetrics metrics) {
-        this.repo = repo;
-        this.redis = redis;
-        this.metrics = metrics;
-    }
 
     @Override
     public Future<ApiResponse<BannerResponse>> createBanner(CreateBannerRequest req) {
@@ -89,7 +82,8 @@ public class BannerCommandServiceImpl implements BannerCommandService {
                                     logger.debug("Banner {} cache invalidated", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for banner {}: {}", bannerId, err.getMessage()))
+                            .onFailure(err -> logger.warn("Failed to invalidate cache for banner {}: {}", bannerId,
+                                    err.getMessage()))
                             .map(updatedBanner);
                 })
                 .map((Banner updatedBanner) -> {
@@ -128,7 +122,8 @@ public class BannerCommandServiceImpl implements BannerCommandService {
                                     logger.debug("Banner {} cache invalidated on trash", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for trashed banner {}: {}", bannerId, err.getMessage()))
+                            .onFailure(err -> logger.warn("Failed to invalidate cache for trashed banner {}: {}",
+                                    bannerId, err.getMessage()))
                             .map(banner);
                 })
                 .map(banner -> {
@@ -165,7 +160,8 @@ public class BannerCommandServiceImpl implements BannerCommandService {
                                     logger.debug("Banner {} cache invalidated on restore", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for restored banner {}: {}", bannerId, err.getMessage()))
+                            .onFailure(err -> logger.warn("Failed to invalidate cache for restored banner {}: {}",
+                                    bannerId, err.getMessage()))
                             .map(banner);
                 })
                 .map(banner -> {
@@ -201,7 +197,8 @@ public class BannerCommandServiceImpl implements BannerCommandService {
                                     logger.debug("Banner {} cache invalidated on permanent delete", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for deleted banner {}: {}", bannerId, err.getMessage()))
+                            .onFailure(err -> logger.warn("Failed to invalidate cache for deleted banner {}: {}",
+                                    bannerId, err.getMessage()))
                             .map(v);
                 })
                 .map(v -> {
@@ -246,14 +243,16 @@ public class BannerCommandServiceImpl implements BannerCommandService {
         return repo.deleteAll()
                 .compose(v -> {
                     logger.info("All trashed banners permanently deleted");
-                    metrics.completeSpanSuccess(tracingContext, "deleteAllPermanent", "All banners permanently deleted");
+                    metrics.completeSpanSuccess(tracingContext, "deleteAllPermanent",
+                            "All banners permanently deleted");
                     return Future.succeededFuture(ApiResponse.<Void>success("All banners permanently deleted"));
                 })
                 .recover(throwable -> {
                     logger.error("Failed to permanently delete all banners", throwable);
                     metrics.completeSpanError(tracingContext, "deleteAllPermanent", throwable.getMessage());
                     return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to permanently delete all banners: " + throwable.getMessage()));
+                            ApiResponse.<Void>error(
+                                    "Failed to permanently delete all banners: " + throwable.getMessage()));
                 });
     }
 }

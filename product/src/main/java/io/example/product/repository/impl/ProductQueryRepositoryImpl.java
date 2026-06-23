@@ -3,7 +3,9 @@ package io.example.product.repository.impl;
 import java.util.ArrayList;
 import java.util.List;
 import io.example.common.domain.PagedResult;
-import io.example.product.model.FindAllProductRequest;
+import io.example.product.domain.requests.FindAllProductRequest;
+import io.example.product.domain.requests.FindAllProductMerchantRequest;
+import io.example.product.domain.requests.FindAllProductCategoryRequest;
 import io.example.product.model.Product;
 import io.example.product.repository.ProductQueryRepository;
 import io.vertx.core.Future;
@@ -11,13 +13,11 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
+import lombok.RequiredArgsConstructor;
 
+@RequiredArgsConstructor
 public class ProductQueryRepositoryImpl implements ProductQueryRepository {
     private final Pool client;
-
-    public ProductQueryRepositoryImpl(Pool client) {
-        this.client = client;
-    }
 
     @Override
     public Future<PagedResult<Product>> findAll(FindAllProductRequest req) {
@@ -151,9 +151,10 @@ public class ProductQueryRepositoryImpl implements ProductQueryRepository {
     }
 
     @Override
-    public Future<PagedResult<Product>> findByMerchant(Long merchantId, String search, Long categoryId,
-                                                      Integer minPrice, Integer maxPrice, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
+    public Future<PagedResult<Product>> findByMerchant(FindAllProductMerchantRequest req) {
+        int page = req.getPage() > 0 ? req.getPage() : 1;
+        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+        int offset = (page - 1) * pageSize;
 
         return client
                 .preparedQuery("""
@@ -203,14 +204,22 @@ public class ProductQueryRepositoryImpl implements ProductQueryRepository {
                         LIMIT $6
                         OFFSET $7
                         """)
-                .execute(Tuple.of(merchantId, search, categoryId, minPrice, maxPrice, pageSize, offset))
+                .execute(Tuple.of(
+                        req.getMerchantId(),
+                        req.getSearch(),
+                        req.getCategoryId(),
+                        req.getMinPrice(),
+                        req.getMaxPrice(),
+                        pageSize,
+                        offset))
                 .map(this::mapPagedProducts);
     }
 
     @Override
-    public Future<PagedResult<Product>> findByCategory(String categoryName, String search, Integer minPrice,
-                                                      Integer maxPrice, int page, int pageSize) {
-        int offset = (page > 0 ? page - 1 : 0) * pageSize;
+    public Future<PagedResult<Product>> findByCategory(FindAllProductCategoryRequest req) {
+        int page = req.getPage() > 0 ? req.getPage() : 1;
+        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+        int offset = (page - 1) * pageSize;
 
         return client
                 .preparedQuery("""
@@ -262,7 +271,13 @@ public class ProductQueryRepositoryImpl implements ProductQueryRepository {
                         LIMIT $5
                         OFFSET $6
                         """)
-                .execute(Tuple.of(categoryName, search, minPrice, maxPrice, pageSize, offset))
+                .execute(Tuple.of(
+                        req.getCategoryName(),
+                        req.getSearch(),
+                        req.getMinPrice(),
+                        req.getMaxPrice(),
+                        pageSize,
+                        offset))
                 .map(this::mapPagedProducts);
     }
 
