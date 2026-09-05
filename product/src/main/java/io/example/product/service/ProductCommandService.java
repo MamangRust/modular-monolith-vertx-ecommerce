@@ -13,6 +13,10 @@ public interface ProductCommandService {
 
     Future<ProductResponse> updateProductCountStock(Integer productId, Integer countInStock);
 
+    Future<ProductResponse> decrementStock(Integer productId, Integer quantity);
+
+    Future<ProductResponse> incrementStock(Integer productId, Integer quantity);
+
     Future<ProductResponseDeleteAt> trash(Long id);
 
     Future<ProductResponseDeleteAt> restore(Long id);

@@ -13,6 +13,7 @@ import pb.shipping_address.ShippingAddressCommon.ApiResponseShippingAll;
 import pb.shipping_address.ShippingAddressCommon.ApiResponseShippingDelete;
 import pb.shipping_address.ShippingAddressCommon.ApiResponseShippingDeleteAt;
 import pb.shipping_address.ShippingAddressCommon.FindByIdShippingRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ShippingAddressCommandHandler
@@ -130,4 +131,17 @@ public class ShippingAddressCommandHandler
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.shipping_address.VertxShippingCommandServiceGrpcServer.ShippingCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.CreateShipping, this::createShipping);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.UpdateShipping, this::updateShipping);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.TrashedShipping, this::trashedShipping);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.RestoreShipping, this::restoreShipping);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.DeleteShippingPermanent, this::deleteShippingPermanent);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.DeleteShippingByOrderPermanent, this::deleteShippingByOrderPermanent);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.RestoreAllShipping, this::restoreAllShipping);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingCommandServiceGrpcServer.DeleteAllShippingPermanent, this::deleteAllShippingPermanent);
+    return this;
+  }
 }

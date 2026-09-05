@@ -5,3 +5,5 @@ resources:
 - product-deployment.yaml
 - product-hpa.yaml
 - product-service.yaml
+- pdb.yaml
+- network-policy.yaml

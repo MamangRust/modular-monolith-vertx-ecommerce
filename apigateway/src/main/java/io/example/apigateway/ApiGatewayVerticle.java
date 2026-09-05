@@ -79,8 +79,7 @@ public class ApiGatewayVerticle extends AbstractVerticle {
     // 3. Define all SocketAddresses for backend microservices using environment
     // variables
     SocketAddress addrUser = resolveGrpcAddress("USER", "user", 8083);
-    SocketAddress addrAuth = SocketAddress.inetSocketAddress(8083, "auth"); // Special case for auth as it might be used
-                                                                            // differently
+    SocketAddress addrAuth = resolveGrpcAddress("AUTH", "auth", 50051);
     SocketAddress addrRole = resolveGrpcAddress("ROLE", "role", 8083);
     SocketAddress addrBanner = resolveGrpcAddress("BANNER", "banner", 8083);
     SocketAddress addrCart = resolveGrpcAddress("CART", "cart", 8083);
@@ -91,7 +90,7 @@ public class ApiGatewayVerticle extends AbstractVerticle {
     SocketAddress addrMerchantDetail = resolveGrpcAddress("MERCHANT_DETAIL", "merchant_detail", 50067);
     SocketAddress addrMerchantPolicy = resolveGrpcAddress("MERCHANT_POLICY", "merchant_policy", 50068);
     SocketAddress addrOrder = resolveGrpcAddress("ORDER", "order", 50057);
-    SocketAddress addrOrderItem = resolveGrpcAddress("ORDER_ITEM", "order-item", 50056);
+    SocketAddress addrOrderItem = resolveGrpcAddress("ORDER_ITEM", "order_item", 50056);
     SocketAddress addrProduct = resolveGrpcAddress("PRODUCT", "product", 50058);
     SocketAddress addrSlider = resolveGrpcAddress("SLIDER", "slider", 50062);
     SocketAddress addrShipping = resolveGrpcAddress("SHIPPING", "shipping_address", 50063);
@@ -226,6 +225,23 @@ public class ApiGatewayVerticle extends AbstractVerticle {
     chaosManager.startWatcher(vertx);
     baseRouter.route().handler(new io.example.common.chaos.ChaosHttpMiddleware(chaosManager));
 
+    // Rate limiter — configurable per environment; production defaults to 100/minute.
+    int rateLimit = readPositiveIntEnv("RATE_LIMIT_REQUESTS", 100);
+    long rateWindowMs = readPositiveLongEnv("RATE_LIMIT_WINDOW_MS", 60_000L);
+    var rateBuckets = new java.util.concurrent.ConcurrentHashMap<String, RateLimiter.Bucket>();
+    final int configuredRateLimit = rateLimit;
+    final long configuredRateWindowMs = rateWindowMs;
+    baseRouter.route().handler(ctx -> {
+      String ip = ctx.request().remoteAddress().hostAddress();
+      var bucket = rateBuckets.computeIfAbsent(ip,
+          k -> new RateLimiter.Bucket(configuredRateLimit, configuredRateWindowMs));
+      if (!bucket.tryConsume()) {
+        ctx.response().setStatusCode(429).putHeader("Retry-After", "1").end("Too Many Requests");
+        return;
+      }
+      ctx.next();
+    });
+
     Router registeredRouter = GatewayRoutes.register(
         baseRouter,
         jwtAuth,
@@ -250,6 +266,20 @@ public class ApiGatewayVerticle extends AbstractVerticle {
         transactionHandler,
         chaosManager);
 
+    // Global failure handler — satu source of truth response error:
+    // ctx.fail(Throwable) selalu masuk status 500, maka errorHandler(500) yang
+    // menangkap seluruh ApiException / IllegalArgumentException / error lain.
+    registeredRouter.errorHandler(500, ctx -> io.example.apigateway.utils.GrpcGatewayUtils
+        .handleFailure(ctx, ctx.failure()));
+    registeredRouter.errorHandler(404, ctx -> {
+      if (ctx.failure() != null) {
+        io.example.apigateway.utils.GrpcGatewayUtils.handleFailure(ctx, ctx.failure());
+      } else {
+        io.example.apigateway.utils.GrpcGatewayUtils.handleFailure(
+            ctx, new io.example.common.exception.api.NotFoundException("Route not found"));
+      }
+    });
+
     int port = rawConfig.getInteger("http_port", 8080);
     String envHttpPort = System.getenv("HTTP_PORT");
     if (envHttpPort != null)
@@ -271,6 +301,40 @@ public class ApiGatewayVerticle extends AbstractVerticle {
           log.error("❌ CRITICAL: Failed to launch HTTP server for Gateway", err);
           startPromise.fail(err);
         });
+  }
+
+  private int readPositiveIntEnv(String name, int fallback) {
+    String raw = System.getenv(name);
+    if (raw == null || raw.isBlank()) {
+      return fallback;
+    }
+    try {
+      int value = Integer.parseInt(raw);
+      if (value > 0) {
+        return value;
+      }
+    } catch (NumberFormatException ignored) {
+      // Fall through to the safe default.
+    }
+    log.warn("Invalid positive {}='{}'; using {}", name, raw, fallback);
+    return fallback;
+  }
+
+  private long readPositiveLongEnv(String name, long fallback) {
+    String raw = System.getenv(name);
+    if (raw == null || raw.isBlank()) {
+      return fallback;
+    }
+    try {
+      long value = Long.parseLong(raw);
+      if (value > 0) {
+        return value;
+      }
+    } catch (NumberFormatException ignored) {
+      // Fall through to the safe default.
+    }
+    log.warn("Invalid positive {}='{}'; using {}", name, raw, fallback);
+    return fallback;
   }
 
   @Override

@@ -16,6 +16,7 @@ import pb.transaction.TransactionQuery.FindAllTransactionRequest;
 import pb.transaction.TransactionQuery.FindAllTransactionByMerchantRequest;
 import pb.transaction.TransactionQuery.FindByOrderIdTransactionRequest;
 import pb.transaction.VertxTransactionQueryServiceGrpcServer.TransactionQueryServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class TransactionQueryHandler implements TransactionQueryServiceApi {
@@ -135,4 +136,15 @@ public class TransactionQueryHandler implements TransactionQueryServiceApi {
                                                 .build())
                                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
         }
+
+  @Override
+  public pb.transaction.VertxTransactionQueryServiceGrpcServer.TransactionQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionQueryServiceGrpcServer.FindAllTransactions, this::findAllTransactions);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionQueryServiceGrpcServer.FindByMerchant, this::findByMerchant);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionQueryServiceGrpcServer.FindByOrderId, this::findByOrderId);
+    return this;
+  }
 }

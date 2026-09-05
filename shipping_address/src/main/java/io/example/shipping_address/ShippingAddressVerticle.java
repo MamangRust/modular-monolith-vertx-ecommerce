@@ -87,7 +87,9 @@ public class ShippingAddressVerticle extends AbstractVerticle {
         .setPort(dbCfg.getInteger("port", 5449))
         .setDatabase(dbCfg.getString("database", "ecommerce_shipping_address"))
         .setUser(dbCfg.getString("user", "DRAGON"))
-        .setPassword(dbCfg.getString("password", "DRAGON"));
+        .setPassword(dbCfg.getString("password", "DRAGON"))
+        // PgBouncer uses transaction pooling; do not reuse session-bound prepared statements.
+        .setCachePreparedStatements(false);
 
     PoolOptions poolOptions = new PoolOptions()
         .setMaxSize(dbCfg.getInteger("pool_size", 5));

@@ -13,6 +13,7 @@ import pb.merchant_document.MerchantDocumentCommon.ApiResponsePaginationMerchant
 import pb.merchant_document.MerchantDocumentCommon.ApiResponsePaginationMerchantDocumentAt;
 import pb.merchant_document.MerchantDocumentQuery.FindMerchantDocumentByIdRequest;
 import pb.merchant_document.VertxMerchantDocumentQueryServiceGrpcServer.MerchantDocumentQueryServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantDocumentQueryHandler implements MerchantDocumentQueryServiceApi {
@@ -93,5 +94,14 @@ public class MerchantDocumentQueryHandler implements MerchantDocumentQueryServic
             .setData(ProtoConverter.fromDocumentResponse(res))
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.merchant_document.VertxMerchantDocumentQueryServiceGrpcServer.MerchantDocumentQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentQueryServiceGrpcServer.FindAllActive, this::findAllActive);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentQueryServiceGrpcServer.FindAllTrashed, this::findAllTrashed);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentQueryServiceGrpcServer.FindById, this::findById);
+    return this;
   }
 }

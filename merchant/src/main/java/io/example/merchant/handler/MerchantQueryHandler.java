@@ -13,6 +13,7 @@ import pb.merchant.MerchantCommon.ApiResponsePaginationMerchant;
 import pb.merchant.MerchantCommon.ApiResponsePaginationMerchantDeleteAt;
 import pb.merchant.MerchantCommon.FindByIdMerchantRequest;
 import pb.merchant.VertxMerchantQueryServiceGrpcServer.MerchantQueryServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantQueryHandler implements MerchantQueryServiceApi {
@@ -91,5 +92,14 @@ public class MerchantQueryHandler implements MerchantQueryServiceApi {
             .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.merchant.VertxMerchantQueryServiceGrpcServer.MerchantQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
   }
 }

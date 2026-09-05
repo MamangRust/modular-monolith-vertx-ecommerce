@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 public class CreateMerchantRequest {
     private Integer userId;
     private String name;
-    private String apiKey;
+    private String description;
+    private String address;
+    private String contactEmail;
+    private String contactPhone;
     private String status;
 }

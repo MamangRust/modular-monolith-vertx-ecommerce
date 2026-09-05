@@ -1,8 +1,8 @@
 package io.example.category.repository.impl;
 
-import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -91,7 +91,7 @@ public class CategoryStatsRepositoryImpl implements CategoryStatsRepository {
 
     @Override
     public Future<List<CategoriesMonthPrice>> getMonthlyCategory(FindYearCategoryRequest req) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
+        LocalDateTime refTs = LocalDateTime.of(req.getYear(), 1, 1, 0, 0);
         return client
                 .preparedQuery(
                         """
@@ -118,7 +118,7 @@ public class CategoryStatsRepositoryImpl implements CategoryStatsRepository {
 
     @Override
     public Future<List<CategoriesYearPrice>> getYearlyCategory(FindYearCategoryRequest req) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
+        LocalDateTime refTs = LocalDateTime.of(req.getYear(), 1, 1, 0, 0);
         return client
                 .preparedQuery(
                         """
@@ -148,7 +148,11 @@ public class CategoryStatsRepositoryImpl implements CategoryStatsRepository {
         LocalDate startPrevDate = startDate.minusYears(1);
         LocalDate endPrevDate = startPrevDate.withDayOfMonth(startPrevDate.lengthOfMonth());
 
-        return Tuple.of(startDate, endDate, startPrevDate, endPrevDate);
+        return Tuple.of(
+                startDate.atStartOfDay(),
+                endDate.atTime(LocalTime.MAX),
+                startPrevDate.atStartOfDay(),
+                endPrevDate.atTime(LocalTime.MAX));
     }
 
     private List<CategoriesMonthlyTotalPrice> mapMonthlyTotalPrice(RowSet<Row> rows) {

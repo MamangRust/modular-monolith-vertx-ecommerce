@@ -1,6 +1,5 @@
 package io.example.transaction.service.kafka;
 
-import io.example.common.config.TelemetryConfig;
 import io.example.common.service.RedisService;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.Future;
@@ -20,16 +19,14 @@ public class TransactionKafkaConsumerService {
 
   private final KafkaConsumer<String, JsonObject> consumer;
   private final RedisService redisService;
-  private final TelemetryConfig telemetryConfig;
 
   private static final String CACHE_PREFIX = "transaction:";
 
   public TransactionKafkaConsumerService(Vertx vertx, RedisService redisService, OpenTelemetry openTelemetry) {
     this.redisService = redisService;
 
-    JsonObject telConfig = new JsonObject().put("service.name", "transaction-kafka-consumer");
-    this.telemetryConfig = new TelemetryConfig(telConfig);
-    this.telemetryConfig.initialize();
+    // NOTE: telemetry is initialized once by the owning verticle; the passed
+    // openTelemetry instance is reused here instead of re-registering the global.
 
     Map<String, String> config = new HashMap<>();
     config.put("bootstrap.servers", System.getenv().getOrDefault("KAFKA_BROKERS", "localhost:9092"));
@@ -85,9 +82,6 @@ public class TransactionKafkaConsumerService {
   public Future<Void> close() {
     if (consumer != null) {
       return consumer.close().onSuccess(v -> log.info("🔒 TransactionKafkaConsumerService closed"));
-    }
-    if (telemetryConfig != null) {
-      telemetryConfig.shutdown();
     }
     return Future.succeededFuture();
   }

@@ -16,6 +16,7 @@ import pb.merchant_document.MerchantDocumentCommon.ApiResponseMerchantDocument;
 import pb.merchant_document.MerchantDocumentCommon.ApiResponseMerchantDocumentAll;
 import pb.merchant_document.MerchantDocumentCommon.ApiResponseMerchantDocumentDelete;
 import pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.MerchantDocumentCommandServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantDocumentCommandHandler implements MerchantDocumentCommandServiceApi {
@@ -125,5 +126,18 @@ public class MerchantDocumentCommandHandler implements MerchantDocumentCommandSe
             .setMessage("All documents permanently deleted")
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.MerchantDocumentCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.UpdateStatus, this::updateStatus);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.Trashed, this::trashed);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.Restore, this::restore);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.DeletePermanent, this::deletePermanent);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.RestoreAll, this::restoreAll);
+    GrpcServerBinder.bind(server, pb.merchant_document.VertxMerchantDocumentCommandServiceGrpcServer.DeleteAllPermanent, this::deleteAllPermanent);
+    return this;
   }
 }

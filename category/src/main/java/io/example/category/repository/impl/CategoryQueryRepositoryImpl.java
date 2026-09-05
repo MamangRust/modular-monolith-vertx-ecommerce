@@ -21,9 +21,9 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
 
     @Override
     public Future<PagedResult<Category>> getCategories(FindAllCategoriesRequest req) {
-        int page = req.getPage() > 0 ? req.getPage() : 0;
+        int page = req.getPage() > 0 ? req.getPage() : 1;
         int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-        int offset = page * pageSize;
+        int offset = (page - 1) * pageSize;
 
         return client
                 .preparedQuery("""
@@ -54,9 +54,9 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
 
     @Override
     public Future<PagedResult<Category>> getCategoriesActive(FindAllCategoriesRequest req) {
-        int page = req.getPage() > 0 ? req.getPage() : 0;
+        int page = req.getPage() > 0 ? req.getPage() : 1;
         int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-        int offset = page * pageSize;
+        int offset = (page - 1) * pageSize;
 
         return client
                 .preparedQuery("""
@@ -88,9 +88,9 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
 
     @Override
     public Future<PagedResult<Category>> getCategoriesTrashed(FindAllCategoriesRequest req) {
-        int page = req.getPage() > 0 ? req.getPage() : 0;
+        int page = req.getPage() > 0 ? req.getPage() : 1;
         int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
-        int offset = page * pageSize;
+        int offset = (page - 1) * pageSize;
 
         return client
                 .preparedQuery("""
@@ -131,7 +131,8 @@ public class CategoryQueryRepositoryImpl implements CategoryQueryRepository {
                             slug_category,
                             image_category,
                             created_at,
-                            updated_at
+                            updated_at,
+                            deleted_at
                         FROM categories
                         WHERE
                             category_id = $1

@@ -14,6 +14,7 @@ import pb.merchant.MerchantCommon.ApiResponseMerchantAll;
 import pb.merchant.MerchantCommon.ApiResponseMerchantDelete;
 import pb.merchant.MerchantCommon.ApiResponseMerchantDeleteAt;
 import pb.merchant.MerchantCommon.FindByIdMerchantRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantCommandHandler
@@ -25,6 +26,10 @@ public class MerchantCommandHandler
         var domainReq = io.example.merchant.domain.requests.CreateMerchantRequest.builder()
                 .userId(req.getUserId())
                 .name(req.getName())
+                .description(req.getDescription())
+                .address(req.getAddress())
+                .contactEmail(req.getContactEmail())
+                .contactPhone(req.getContactPhone())
                 .status(req.getStatus())
                 .build();
 
@@ -42,6 +47,10 @@ public class MerchantCommandHandler
         var domainReq = io.example.merchant.domain.requests.UpdateMerchantRequest.builder()
                 .merchantId(req.getMerchantId())
                 .name(req.getName())
+                .description(req.getDescription())
+                .address(req.getAddress())
+                .contactEmail(req.getContactEmail())
+                .contactPhone(req.getContactPhone())
                 .status(req.getStatus())
                 .build();
 
@@ -121,4 +130,17 @@ public class MerchantCommandHandler
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.merchant.VertxMerchantCommandServiceGrpcServer.MerchantCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.UpdateStatus, this::updateStatus);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.TrashedMerchant, this::trashedMerchant);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.RestoreMerchant, this::restoreMerchant);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.DeleteMerchantPermanent, this::deleteMerchantPermanent);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.RestoreAllMerchant, this::restoreAllMerchant);
+    GrpcServerBinder.bind(server, pb.merchant.VertxMerchantCommandServiceGrpcServer.DeleteAllMerchantPermanent, this::deleteAllMerchantPermanent);
+    return this;
+  }
 }

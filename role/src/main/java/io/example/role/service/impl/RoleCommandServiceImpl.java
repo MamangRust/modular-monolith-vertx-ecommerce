@@ -1,6 +1,7 @@
 package io.example.role.service.impl;
 
 import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.ConflictException;
 import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
@@ -33,8 +34,24 @@ public class RoleCommandServiceImpl implements RoleCommandService {
 
     return repository.createRole(req)
         .map(RoleResponse::from)
+        .recover(err -> isUniqueViolation(err)
+            ? Future.failedFuture(
+                new ConflictException("Role with name '" + req.getName() + "' already exists"))
+            : Future.failedFuture(err))
         .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createRole", "Success"))
         .onFailure(e -> metrics.completeSpanError(ctx, "createRole", e.getMessage()));
+  }
+
+  private boolean isUniqueViolation(Throwable error) {
+    Throwable current = error;
+    while (current != null) {
+      if (current.getMessage() != null && (current.getMessage().contains("23505")
+          || current.getMessage().toLowerCase().contains("duplicate key"))) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   @Override

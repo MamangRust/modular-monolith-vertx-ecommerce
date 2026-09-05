@@ -20,4 +20,6 @@ public interface TransactionQueryRepository {
     Future<Transaction> findByTrashedId(Long transactionId);
 
     Future<Transaction> getTransactionByOrderId(Long orderId);
+
+    Future<Transaction> getTransactionByIdempotencyKey(String idempotencyKey);
 }

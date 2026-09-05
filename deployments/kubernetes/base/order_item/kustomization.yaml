@@ -5,3 +5,5 @@ resources:
 - order_item-deployment.yaml
 - order_item-hpa.yaml
 - order_item-service.yaml
+- pdb.yaml
+- network-policy.yaml

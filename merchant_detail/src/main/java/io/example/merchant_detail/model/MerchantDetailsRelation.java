@@ -46,7 +46,7 @@ public class MerchantDetailsRelation {
         .updatedAt(getTimestampFromRow(row, "updated_at"))
         .deletedAt(getTimestampFromRow(row, "deleted_at"))
         .merchantName(row.getString("merchant_name"))
-        .totalCount(row.getInteger("total_count"))
+        .totalCount(row.getColumnIndex("total_count") >= 0 ? row.getInteger("total_count") : null)
         .build();
 
     Object socialLinksObj = row.getValue("social_media_links");

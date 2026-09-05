@@ -23,6 +23,7 @@ public class MigrationApp {
 
     Flyway flyway = Flyway.configure()
         .dataSource(url, username, password)
+        .locations("classpath:db/migration")
         .baselineOnMigrate(true)
         .load();
 

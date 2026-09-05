@@ -15,6 +15,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <version>2.16.1</version>
+    </dependency>
+    <dependency>
       <groupId>io.vertx</groupId>
       <artifactId>vertx-core</artifactId>
     </dependency>
@@ -126,12 +131,6 @@
     <dependency>
       <groupId>io.opentelemetry.instrumentation</groupId>
       <artifactId>opentelemetry-runtime-telemetry-java17</artifactId>
-    </dependency>
-
-    <!-- BCrypt for password hashing -->
-    <dependency>
-      <groupId>at.favre.lib</groupId>
-      <artifactId>bcrypt</artifactId>
     </dependency>
 
     <!-- Lombok -->

@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package pb.wallet;
+
+import "common/api.proto";
+
+option go_package = "github.com/MamangRust/monolith-ecommerce-shared/pb";
+
+message SaldoResponse {
+    int32 saldo_id = 1;
+    string card_number = 2;
+    int32 total_balance = 3;
+    int32 withdraw_amount = 4;
+    string created_at = 5;
+    string updated_at = 6;
+}
+
+message ApiResponseSaldo {
+    string status = 1;
+    string message = 2;
+    SaldoResponse data = 3;
+}
+
+message DebitWalletRequest {
+    string card_number = 1;
+    int32 amount = 2;
+}
+
+message CreditWalletRequest {
+    string card_number = 1;
+    int32 amount = 2;
+}

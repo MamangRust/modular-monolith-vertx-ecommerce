@@ -30,6 +30,13 @@ public class CartCommandServiceImpl implements CartCommandService {
 
     @Override
     public Future<CartResponse> create(CreateCartRequest req) {
+        if (req == null || req.getUserId() == null || req.getUserId() <= 0
+                || req.getProductId() == null || req.getProductId() <= 0
+                || req.getQuantity() == null || req.getQuantity() <= 0) {
+            return Future.failedFuture(new BadRequestException(
+                    "User ID, product ID, and a positive quantity are required"));
+        }
+
         var ctx = metrics.startSpan("CartCommandService.create",
                 Attributes.builder()
                         .put("cart.product_id", (long) req.getProductId())
@@ -68,6 +75,9 @@ public class CartCommandServiceImpl implements CartCommandService {
 
     @Override
     public Future<Boolean> deletePermanent(DeleteCartRequest req) {
+        if (req == null) {
+            return Future.failedFuture(new BadRequestException("Cart request is required"));
+        }
         Long cartId = (req.getCartIds() != null && !req.getCartIds().isEmpty()) ? req.getCartIds().get(0) : null;
         Integer userId = req.getUserId();
 
@@ -94,6 +104,9 @@ public class CartCommandServiceImpl implements CartCommandService {
 
     @Override
     public Future<Boolean> deleteAll(DeleteCartRequest req) {
+        if (req == null) {
+            return Future.failedFuture(new BadRequestException("Cart request is required"));
+        }
         Integer userId = req.getUserId();
         java.util.List<Long> cartIds = req.getCartIds();
 

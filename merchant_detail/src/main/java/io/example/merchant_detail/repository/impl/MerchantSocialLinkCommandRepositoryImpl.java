@@ -34,14 +34,14 @@ public class MerchantSocialLinkCommandRepositoryImpl implements MerchantSocialLi
     return pool
         .preparedQuery("""
             UPDATE merchant_social_media_links
-            SET platform = $2, url = $3, updated_at = CURRENT_TIMESTAMP
+            SET platform = COALESCE(NULLIF($2, ''), platform), url = COALESCE(NULLIF($3, ''), url), updated_at = CURRENT_TIMESTAMP
             WHERE merchant_social_id = $1 AND deleted_at IS NULL
             RETURNING merchant_social_id, merchant_detail_id, platform, url, created_at, updated_at, deleted_at
             """)
         .execute(Tuple.of(
             (long) req.getId(),
-            req.getPlatform(),
-            req.getUrl()))
+            req.getPlatform() != null ? req.getPlatform() : "",
+            req.getUrl() != null ? req.getUrl() : ""))
         .map(rows -> rows.iterator().hasNext() ? MerchantSocialMediaLink.fromRow(rows.iterator().next()) : null);
   }
 

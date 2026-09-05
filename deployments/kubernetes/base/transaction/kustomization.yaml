@@ -5,3 +5,5 @@ resources:
 - transaction-deployment.yaml
 - transaction-hpa.yaml
 - transaction-service.yaml
+- pdb.yaml
+- network-policy.yaml

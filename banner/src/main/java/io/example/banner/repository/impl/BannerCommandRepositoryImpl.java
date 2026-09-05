@@ -1,7 +1,7 @@
 package io.example.banner.repository.impl;
 
-import java.sql.Date;
-import java.sql.Time;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 import io.example.banner.domain.requests.CreateBannerRequest;
 import io.example.banner.domain.requests.UpdateBannerRequest;
@@ -20,10 +20,10 @@ public class BannerCommandRepositoryImpl implements BannerCommandRepository {
 
         @Override
         public Future<Banner> createBanner(CreateBannerRequest req) {
-                Date startDate = Date.valueOf(req.getStartDate());
-                Date endDate = Date.valueOf(req.getEndDate());
-                Time startTime = Time.valueOf(req.getStartTime());
-                Time endTime = Time.valueOf(req.getEndTime());
+                LocalDate startDate = LocalDate.parse(req.getStartDate());
+                LocalDate endDate = LocalDate.parse(req.getEndDate());
+                LocalTime startTime = LocalTime.parse(req.getStartTime());
+                LocalTime endTime = LocalTime.parse(req.getEndTime());
 
                 return client
                                 .preparedQuery("""
@@ -43,31 +43,31 @@ public class BannerCommandRepositoryImpl implements BannerCommandRepository {
 
         @Override
         public Future<Banner> updateBanner(UpdateBannerRequest req) {
-                Date startDate = Date.valueOf(req.getStartDate());
-                Date endDate = Date.valueOf(req.getEndDate());
-                Time startTime = Time.valueOf(req.getStartTime());
-                Time endTime = Time.valueOf(req.getEndTime());
+                LocalDate startDate = req.getStartDate() != null && !req.getStartDate().isBlank() ? LocalDate.parse(req.getStartDate()) : null;
+                LocalDate endDate = req.getEndDate() != null && !req.getEndDate().isBlank() ? LocalDate.parse(req.getEndDate()) : null;
+                LocalTime startTime = req.getStartTime() != null && !req.getStartTime().isBlank() ? LocalTime.parse(req.getStartTime()) : null;
+                LocalTime endTime = req.getEndTime() != null && !req.getEndTime().isBlank() ? LocalTime.parse(req.getEndTime()) : null;
 
                 return client
                                 .preparedQuery("""
                                                 UPDATE banners
-                                                SET name = $1,
-                                                    start_date = $2,
-                                                    end_date = $3,
-                                                    start_time = $4,
-                                                    end_time = $5,
-                                                    is_active = $6,
+                                                SET name = COALESCE(NULLIF($1, ''), name),
+                                                    start_date = COALESCE(NULLIF($2::TEXT, ''), start_date),
+                                                    end_date = COALESCE(NULLIF($3::TEXT, ''), end_date),
+                                                    start_time = COALESCE(NULLIF($4::TEXT, ''), start_time),
+                                                    end_time = COALESCE(NULLIF($5::TEXT, ''), end_time),
+                                                    is_active = COALESCE(NULLIF($6::TEXT, ''), is_active),
                                                     updated_at = CURRENT_TIMESTAMP
                                                 WHERE banner_id = $7 AND deleted_at IS NULL
                                                 RETURNING banner_id, name, start_date, end_date, start_time, end_time, is_active, created_at, updated_at, deleted_at
                                                 """)
                                 .execute(Tuple.of(
-                                                req.getName(),
-                                                startDate,
-                                                endDate,
-                                                startTime,
-                                                endTime,
-                                                req.getIsActive(),
+                                                req.getName() != null ? req.getName() : "",
+                                                req.getStartDate() != null ? req.getStartDate() : "",
+                                                req.getEndDate() != null ? req.getEndDate() : "",
+                                                req.getStartTime() != null ? req.getStartTime() : "",
+                                                req.getEndTime() != null ? req.getEndTime() : "",
+                                                req.getIsActive() != null ? req.getIsActive() : "",
                                                 (long) req.getBannerId()))
                                 .map(this::mapSingleOrNull);
         }

@@ -20,11 +20,16 @@ public class MerchantCommandRepositoryImpl implements MerchantCommandRepository 
   public Future<Merchant> createMerchant(CreateMerchantRequest request) {
     return client
         .preparedQuery("""
-            INSERT INTO merchants (user_id, name, api_key, status)
-            VALUES ($1, $2, $3, $4)
-            RETURNING merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            INSERT INTO merchants (user_id, name, description, address, contact_email, contact_phone, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             """)
-        .execute(Tuple.of(request.getUserId(), request.getName(), request.getApiKey(), request.getStatus()))
+        .execute(Tuple.of(request.getUserId(), request.getName(),
+            request.getDescription() != null ? request.getDescription() : "",
+            request.getAddress() != null ? request.getAddress() : "",
+            request.getContactEmail() != null ? request.getContactEmail() : "",
+            request.getContactPhone() != null ? request.getContactPhone() : "",
+            request.getStatus()))
         .map(this::mapSingleOrNull);
   }
 
@@ -33,11 +38,24 @@ public class MerchantCommandRepositoryImpl implements MerchantCommandRepository 
     return client
         .preparedQuery("""
             UPDATE merchants
-            SET name = $1, status = $2, updated_at = CURRENT_TIMESTAMP
-            WHERE merchant_id = $3 AND deleted_at IS NULL
-            RETURNING merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            SET name = COALESCE(NULLIF($1, ''), name),
+                description = COALESCE(NULLIF($2, ''), description),
+                address = COALESCE(NULLIF($3, ''), address),
+                contact_email = COALESCE(NULLIF($4, ''), contact_email),
+                contact_phone = COALESCE(NULLIF($5, ''), contact_phone),
+                status = COALESCE(NULLIF($6, ''), status),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE merchant_id = $7 AND deleted_at IS NULL
+            RETURNING merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             """)
-        .execute(Tuple.of(request.getName(), request.getStatus(), request.getMerchantId()))
+        .execute(Tuple.of(
+            request.getName() != null ? request.getName() : "",
+            request.getDescription() != null ? request.getDescription() : "",
+            request.getAddress() != null ? request.getAddress() : "",
+            request.getContactEmail() != null ? request.getContactEmail() : "",
+            request.getContactPhone() != null ? request.getContactPhone() : "",
+            request.getStatus() != null ? request.getStatus() : "",
+            request.getMerchantId()))
         .map(this::mapSingleOrNull);
   }
 
@@ -48,7 +66,7 @@ public class MerchantCommandRepositoryImpl implements MerchantCommandRepository 
             UPDATE merchants
             SET status = $1, updated_at = CURRENT_TIMESTAMP
             WHERE merchant_id = $2 AND deleted_at IS NULL
-            RETURNING merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            RETURNING merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             """)
         .execute(Tuple.of(request.getStatus(), request.getMerchantId()))
         .map(this::mapSingleOrNull);
@@ -61,7 +79,7 @@ public class MerchantCommandRepositoryImpl implements MerchantCommandRepository 
             UPDATE merchants
             SET deleted_at = CURRENT_TIMESTAMP
             WHERE merchant_id = $1 AND deleted_at IS NULL
-            RETURNING merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            RETURNING merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             """)
         .execute(Tuple.of(merchantId))
         .map(this::mapSingleOrNull);
@@ -74,7 +92,7 @@ public class MerchantCommandRepositoryImpl implements MerchantCommandRepository 
             UPDATE merchants
             SET deleted_at = NULL
             WHERE merchant_id = $1 AND deleted_at IS NOT NULL
-            RETURNING merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            RETURNING merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             """)
         .execute(Tuple.of(merchantId))
         .map(this::mapSingleOrNull);

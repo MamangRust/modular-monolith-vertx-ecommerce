@@ -26,7 +26,7 @@ public class CartQueryRepositoryImpl implements CartQueryRepository {
         Integer userId = request.getUserId();
         String search = request.getSearch();
 
-        String query = "SELECT cart_id, user_id, product_id, name, price, image, quantity, weight, created_at, updated_at, COUNT(*) OVER() AS total_count FROM carts WHERE user_id = $1";
+        String query = "SELECT cart_id, user_id, product_id, name, price, image, quantity, weight, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count FROM carts WHERE user_id = $1 AND deleted_at IS NULL";
         List<Object> params = new ArrayList<>();
         params.add(userId);
 

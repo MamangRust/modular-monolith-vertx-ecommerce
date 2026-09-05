@@ -9,6 +9,7 @@ import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
 import pb.category.CategoryCommon;
 import pb.category.CategoryCommand;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class CategoryCommandHandler
@@ -107,4 +108,16 @@ public class CategoryCommandHandler
                         .build())
                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
     }
+
+  @Override
+  public pb.category.VertxCategoryCommandServiceGrpcServer.CategoryCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.TrashedCategory, this::trashedCategory);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.RestoreCategory, this::restoreCategory);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.DeleteCategoryPermanent, this::deleteCategoryPermanent);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.RestoreAllCategory, this::restoreAllCategory);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryCommandServiceGrpcServer.DeleteAllCategoryPermanent, this::deleteAllCategoryPermanent);
+    return this;
+  }
 }

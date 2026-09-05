@@ -37,6 +37,5 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl apigateway -am -Ds
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/apigateway/target/apigateway-*-fat.jar app.jar
-COPY chaos.yaml .
 EXPOSE 5000
 ENTRYPOINT ["java", "-jar", "app.jar"]

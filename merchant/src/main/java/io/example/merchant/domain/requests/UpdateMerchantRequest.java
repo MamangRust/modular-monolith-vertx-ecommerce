@@ -12,5 +12,9 @@ import lombok.NoArgsConstructor;
 public class UpdateMerchantRequest {
     private Integer merchantId;
     private String name;
+    private String description;
+    private String address;
+    private String contactEmail;
+    private String contactPhone;
     private String status;
 }

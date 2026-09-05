@@ -68,11 +68,14 @@ public class CategoryQueryServiceImpl implements CategoryQueryService {
                             .map(this::mapPagination);
                 })
                 .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getAll", "Success"))
-                .onFailure(e -> metrics.completeSpanError(ctx, "getAll", e.getMessage()));
+                .onFailure(e -> {
+                    logger.error("getAll failed", e);
+                    metrics.completeSpanError(ctx, "getAll", e.getMessage());
+                });
     }
 
     @Override
-    public Future<PagedResult<CategoryResponse>> getActive(FindAllCategoriesRequest req) {
+    public Future<PagedResult<CategoryResponseDeleteAt>> getActive(FindAllCategoriesRequest req) {
         var ctx = metrics.startSpan("CategoryQueryService.getActive");
         String cacheKey = CACHE_PREFIX + "list:active:" + (req.getSearch() != null ? req.getSearch() : "") + ":"
                 + req.getPage() + ":" + req.getPageSize();
@@ -84,14 +87,14 @@ public class CategoryQueryServiceImpl implements CategoryQueryService {
                             PagedResult<Category> typedCached = mapper.readValue(jsonStr,
                                     new TypeReference<PagedResult<Category>>() {
                                     });
-                            return Future.succeededFuture(mapPagination(typedCached));
+                            return Future.succeededFuture(mapPaginationDeleteAt(typedCached));
                         } catch (Exception e) {
                             logger.warn("Failed to deserialize cached active categories: {}", e.getMessage());
                         }
                     }
                     return repo.getCategoriesActive(req)
                             .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
-                            .map(this::mapPagination);
+                            .map(this::mapPaginationDeleteAt);
                 })
                 .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getActive", "Success"))
                 .onFailure(e -> metrics.completeSpanError(ctx, "getActive", e.getMessage()));
@@ -144,6 +147,9 @@ public class CategoryQueryServiceImpl implements CategoryQueryService {
                             .map(CategoryResponse::from);
                 })
                 .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getById", "Success"))
-                .onFailure(e -> metrics.completeSpanError(ctx, "getById", e.getMessage()));
+                .onFailure(e -> {
+                    logger.error("getById failed for id: {}", id, e);
+                    metrics.completeSpanError(ctx, "getById", e.getMessage());
+                });
     }
 }

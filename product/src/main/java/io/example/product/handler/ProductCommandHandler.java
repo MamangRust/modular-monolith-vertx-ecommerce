@@ -12,9 +12,12 @@ import pb.product.ProductCommon.ApiResponseProductDelete;
 import pb.product.ProductCommon.ApiResponseProductDeleteAt;
 import pb.product.ProductCommon.FindByIdProductRequest;
 import pb.product.ProductCommand.CreateProductRequest;
+import pb.product.ProductCommand.DecrementStockRequest;
+import pb.product.ProductCommand.IncrementStockRequest;
 import pb.product.ProductCommand.UpdateProductCountStockRequest;
 import pb.product.ProductCommand.UpdateProductRequest;
 import pb.product.VertxProductCommandServiceGrpcServer.ProductCommandServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ProductCommandHandler implements ProductCommandServiceApi {
@@ -83,6 +86,28 @@ public class ProductCommandHandler implements ProductCommandServiceApi {
         }
 
         @Override
+        public Future<ApiResponseProduct> decrementStock(DecrementStockRequest req) {
+                return service.decrementStock(req.getProductId(), req.getQuantity())
+                                .map(data -> ApiResponseProduct.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .setData(ProtoConverter.fromProductResponse(data))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
+
+        @Override
+        public Future<ApiResponseProduct> incrementStock(IncrementStockRequest req) {
+                return service.incrementStock(req.getProductId(), req.getQuantity())
+                                .map(data -> ApiResponseProduct.newBuilder()
+                                                .setStatus("success")
+                                                .setMessage("OK")
+                                                .setData(ProtoConverter.fromProductResponse(data))
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture);
+        }
+
+        @Override
         public Future<ApiResponseProductDeleteAt> trashedProduct(FindByIdProductRequest req) {
                 return service.trash((long) req.getId())
                                 .map(data -> ApiResponseProductDeleteAt.newBuilder()
@@ -133,4 +158,19 @@ public class ProductCommandHandler implements ProductCommandServiceApi {
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.product.VertxProductCommandServiceGrpcServer.ProductCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.UpdateProductCountStock, this::updateProductCountStock);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.DecrementStock, this::decrementStock);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.IncrementStock, this::incrementStock);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.TrashedProduct, this::trashedProduct);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.RestoreProduct, this::restoreProduct);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.DeleteProductPermanent, this::deleteProductPermanent);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.RestoreAllProduct, this::restoreAllProduct);
+    GrpcServerBinder.bind(server, pb.product.VertxProductCommandServiceGrpcServer.DeleteAllProductPermanent, this::deleteAllProductPermanent);
+    return this;
+  }
 }

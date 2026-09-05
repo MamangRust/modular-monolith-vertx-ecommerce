@@ -15,13 +15,19 @@ spec:
     spec:
       containers:
       - name: prometheus
-        image: prom/prometheus:latest
+        image: prom/prometheus:v2.53.0
         ports:
         - containerPort: 9090
         volumeMounts:
         - name: prometheus-config
           mountPath: /etc/prometheus/prometheus.yml
           subPath: prometheus.yml
+        - name: prometheus-rules
+          mountPath: /etc/prometheus/rules
+        args:
+        - --config.file=/etc/prometheus/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --web.enable-lifecycle
         resources:
           requests:
             memory: "512Mi"
@@ -33,3 +39,6 @@ spec:
       - name: prometheus-config
         configMap:
           name: prometheus-config
+      - name: prometheus-rules
+        configMap:
+          name: prometheus-rules

@@ -55,7 +55,10 @@ public class TransactionStatsServiceImpl implements TransactionStatsService {
                             .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res));
                 })
                 .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyAmountSuccess", "Success"))
-                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyAmountSuccess", e.getMessage()));
+                .onFailure(e -> {
+                    log.error("Failed to load monthly transaction success stats for {}/{}", req.getYear(), req.getMonth(), e);
+                    metrics.completeSpanError(ctx, "getMonthlyAmountSuccess", e.getMessage());
+                });
     }
 
     @Override

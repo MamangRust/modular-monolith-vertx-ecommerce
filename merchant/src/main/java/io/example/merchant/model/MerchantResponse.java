@@ -27,10 +27,10 @@ public class MerchantResponse {
         .id(m.getMerchantId())
         .userId(m.getUserId())
         .name(m.getName() != null ? m.getName() : "")
-        .description("") // Default empty to fit schema
-        .address("")     // Default empty to fit schema
-        .contactEmail("") // Default empty to fit schema
-        .contactPhone("") // Default empty to fit schema
+        .description(m.getDescription() != null ? m.getDescription() : "")
+        .address(m.getAddress() != null ? m.getAddress() : "")
+        .contactEmail(m.getContactEmail() != null ? m.getContactEmail() : "")
+        .contactPhone(m.getContactPhone() != null ? m.getContactPhone() : "")
         .status(m.getStatus() != null ? m.getStatus() : "")
         .createdAt(m.getCreatedAt() != null ? m.getCreatedAt().toInstant().toString() : "")
         .updatedAt(m.getUpdatedAt() != null ? m.getUpdatedAt().toInstant().toString() : "")

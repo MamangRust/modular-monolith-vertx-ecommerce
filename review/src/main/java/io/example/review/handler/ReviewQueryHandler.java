@@ -14,6 +14,7 @@ import pb.review.ReviewCommon.ApiResponseReview;
 import pb.review.ReviewQuery.FindAllReviewMerchantRequest;
 import pb.review.ReviewQuery.FindAllReviewProductRequest;
 import pb.review.ReviewQuery.FindAllReviewRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ReviewQueryHandler implements pb.review.VertxReviewQueryServiceGrpcServer.ReviewQueryServiceApi {
@@ -116,4 +117,15 @@ public class ReviewQueryHandler implements pb.review.VertxReviewQueryServiceGrpc
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.review.VertxReviewQueryServiceGrpcServer.ReviewQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.review.VertxReviewQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewQueryServiceGrpcServer.FindByProduct, this::findByProduct);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewQueryServiceGrpcServer.FindByMerchant, this::findByMerchant);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewQueryServiceGrpcServer.FindById, this::findById);
+    return this;
+  }
 }

@@ -11,14 +11,22 @@ public class ProtoConverter {
     if (model == null) {
       return pb.merchant_detail.MerchantDetailCommon.MerchantSocialMediaLinkResponse.getDefaultInstance();
     }
-    return pb.merchant_detail.MerchantDetailCommon.MerchantSocialMediaLinkResponse.newBuilder()
+    var builder = pb.merchant_detail.MerchantDetailCommon.MerchantSocialMediaLinkResponse.newBuilder()
         .setId(model.getId().intValue())
-        .setMerchantDetailId(model.getMerchantDetailId())
-        .setPlatform(model.getPlatform())
-        .setUrl(model.getUrl())
-        .setCreatedAt(model.getCreatedAt())
-        .setUpdatedAt(model.getUpdatedAt())
-        .build();
+        .setMerchantDetailId(model.getMerchantDetailId());
+    if (model.getPlatform() != null) {
+      builder.setPlatform(model.getPlatform());
+    }
+    if (model.getUrl() != null) {
+      builder.setUrl(model.getUrl());
+    }
+    if (model.getCreatedAt() != null) {
+      builder.setCreatedAt(model.getCreatedAt());
+    }
+    if (model.getUpdatedAt() != null) {
+      builder.setUpdatedAt(model.getUpdatedAt());
+    }
+    return builder.build();
   }
 
   public static pb.merchant_detail.MerchantDetailCommon.MerchantDetailResponse toProtoResponse(MerchantDetailResponse model) {
@@ -27,14 +35,15 @@ public class ProtoConverter {
     }
     var builder = pb.merchant_detail.MerchantDetailCommon.MerchantDetailResponse.newBuilder()
         .setId(model.getId().intValue())
-        .setMerchantId(model.getMerchantId())
-        .setDisplayName(model.getDisplayName())
-        .setCoverImageUrl(model.getCoverImageUrl())
-        .setLogoUrl(model.getLogoUrl())
-        .setShortDescription(model.getShortDescription())
-        .setWebsiteUrl(model.getWebsiteUrl())
-        .setCreatedAt(model.getCreatedAt())
-        .setUpdatedAt(model.getUpdatedAt());
+        .setMerchantId(model.getMerchantId());
+
+    setIfPresent(builder::setDisplayName, model.getDisplayName());
+    setIfPresent(builder::setCoverImageUrl, model.getCoverImageUrl());
+    setIfPresent(builder::setLogoUrl, model.getLogoUrl());
+    setIfPresent(builder::setShortDescription, model.getShortDescription());
+    setIfPresent(builder::setWebsiteUrl, model.getWebsiteUrl());
+    setIfPresent(builder::setCreatedAt, model.getCreatedAt());
+    setIfPresent(builder::setUpdatedAt, model.getUpdatedAt());
 
     if (model.getSocialMediaLinks() != null) {
       for (var link : model.getSocialMediaLinks()) {
@@ -50,14 +59,15 @@ public class ProtoConverter {
     }
     var builder = pb.merchant_detail.MerchantDetailCommon.MerchantDetailResponseDeleteAt.newBuilder()
         .setId(model.getId().intValue())
-        .setMerchantId(model.getMerchantId())
-        .setDisplayName(model.getDisplayName())
-        .setCoverImageUrl(model.getCoverImageUrl())
-        .setLogoUrl(model.getLogoUrl())
-        .setShortDescription(model.getShortDescription())
-        .setWebsiteUrl(model.getWebsiteUrl())
-        .setCreatedAt(model.getCreatedAt())
-        .setUpdatedAt(model.getUpdatedAt());
+        .setMerchantId(model.getMerchantId());
+
+    setIfPresent(builder::setDisplayName, model.getDisplayName());
+    setIfPresent(builder::setCoverImageUrl, model.getCoverImageUrl());
+    setIfPresent(builder::setLogoUrl, model.getLogoUrl());
+    setIfPresent(builder::setShortDescription, model.getShortDescription());
+    setIfPresent(builder::setWebsiteUrl, model.getWebsiteUrl());
+    setIfPresent(builder::setCreatedAt, model.getCreatedAt());
+    setIfPresent(builder::setUpdatedAt, model.getUpdatedAt());
 
     if (model.getDeletedAt() != null && !model.getDeletedAt().isEmpty()) {
       builder.setDeletedAt(StringValue.of(model.getDeletedAt()));
@@ -77,14 +87,15 @@ public class ProtoConverter {
     }
     var builder = pb.merchant_detail.MerchantDetailCommon.MerchantDetailResponseDeleteAt.newBuilder()
         .setId(model.getId().intValue())
-        .setMerchantId(model.getMerchantId())
-        .setDisplayName(model.getDisplayName())
-        .setCoverImageUrl(model.getCoverImageUrl())
-        .setLogoUrl(model.getLogoUrl())
-        .setShortDescription(model.getShortDescription())
-        .setWebsiteUrl(model.getWebsiteUrl())
-        .setCreatedAt(model.getCreatedAt())
-        .setUpdatedAt(model.getUpdatedAt());
+        .setMerchantId(model.getMerchantId());
+
+    setIfPresent(builder::setDisplayName, model.getDisplayName());
+    setIfPresent(builder::setCoverImageUrl, model.getCoverImageUrl());
+    setIfPresent(builder::setLogoUrl, model.getLogoUrl());
+    setIfPresent(builder::setShortDescription, model.getShortDescription());
+    setIfPresent(builder::setWebsiteUrl, model.getWebsiteUrl());
+    setIfPresent(builder::setCreatedAt, model.getCreatedAt());
+    setIfPresent(builder::setUpdatedAt, model.getUpdatedAt());
 
     if (model.getSocialMediaLinks() != null) {
       for (var link : model.getSocialMediaLinks()) {
@@ -92,5 +103,12 @@ public class ProtoConverter {
       }
     }
     return builder.build();
+  }
+
+  /** Calls the protobuf builder setter only when the value is non-null. */
+  private static void setIfPresent(java.util.function.Consumer<String> setter, String value) {
+    if (value != null) {
+      setter.accept(value);
+    }
   }
 }

@@ -31,9 +31,13 @@ import io.example.transaction.repository.impl.OrderQueryRepositoryImpl;
 import io.example.transaction.repository.impl.ShippingAddressQueryRepositoryImpl;
 import io.example.transaction.repository.impl.TransactionCommandRepositoryImpl;
 import io.example.transaction.repository.impl.TransactionQueryRepositoryImpl;
+import io.example.transaction.repository.WalletCommandRepository;
+import io.example.transaction.repository.impl.OutboxRepositoryImpl;
 import io.example.transaction.repository.impl.TransactionStatsByMerchantRepositoryImpl;
+import io.example.transaction.repository.impl.WalletCommandRepositoryImpl;
 import io.example.transaction.repository.impl.TransactionStatsRepositoryImpl;
 import io.example.transaction.repository.impl.UserQueryRepositoryImpl;
+import io.example.transaction.repository.OutboxRepository;
 import io.example.transaction.service.TransactionCommandService;
 import io.example.transaction.service.TransactionQueryService;
 import io.example.transaction.service.TransactionStatsByMerchantService;
@@ -42,6 +46,7 @@ import io.example.transaction.service.impl.TransactionCommandServiceImpl;
 import io.example.transaction.service.impl.TransactionQueryServiceImpl;
 import io.example.transaction.service.impl.TransactionStatsByMerchantServiceImpl;
 import io.example.transaction.service.impl.TransactionStatsServiceImpl;
+import io.example.transaction.service.outbox.OutboxPublisher;
 import io.example.transaction.service.kafka.TransactionKafkaConsumerService;
 import io.opentelemetry.api.OpenTelemetry;
 import io.vertx.core.AbstractVerticle;
@@ -70,6 +75,7 @@ public class TransactionVerticle extends AbstractVerticle {
     private ChaosManager chaosManager;
     private KafkaService kafkaService;
     private TransactionKafkaConsumerService kafkaConsumerService;
+    private OutboxPublisher outboxPublisher;
 
     public static void main(String[] args) {
         Vertx vertx = Vertx.vertx();
@@ -119,7 +125,9 @@ public class TransactionVerticle extends AbstractVerticle {
                 .setPort(dbCfg.getInteger("port", 5444))
                 .setDatabase(dbCfg.getString("database", "ecommerce_transaction"))
                 .setUser(dbCfg.getString("user", "DRAGON"))
-                .setPassword(dbCfg.getString("password", "DRAGON"));
+                .setPassword(dbCfg.getString("password", "DRAGON"))
+                // PgBouncer uses transaction pooling; do not reuse session-bound prepared statements.
+                .setCachePreparedStatements(false);
 
         PoolOptions poolOptions = new PoolOptions()
                 .setMaxSize(dbCfg.getInteger("pool_size", 5));
@@ -141,18 +149,21 @@ public class TransactionVerticle extends AbstractVerticle {
         SocketAddress addrOrder = resolveGrpcAddress("ORDER", "order", 50057);
         SocketAddress addrOrderItem = resolveGrpcAddress("ORDER_ITEM", "order_item", 50056);
         SocketAddress addrShipping = resolveGrpcAddress("SHIPPING", "shipping_address", 50063);
+        SocketAddress addrWallet = resolveGrpcAddress("WALLET", "auth", 8083);
 
         var userGrpcClient = new pb.user.VertxUserQueryServiceGrpcClient(grpcClient, addrUser);
         var merchantGrpcClient = new pb.merchant.VertxMerchantQueryServiceGrpcClient(grpcClient, addrMerchant);
         var orderGrpcClient = new pb.order.VertxOrderQueryServiceGrpcClient(grpcClient, addrOrder);
         var orderItemGrpcClient = new pb.order_item.VertxOrderItemQueryServiceGrpcClient(grpcClient, addrOrderItem);
         var shippingGrpcClient = new pb.shipping_address.VertxShippingQueryServiceGrpcClient(grpcClient, addrShipping);
+        var walletGrpcClient = new pb.wallet.VertxWalletCommandServiceGrpcClient(grpcClient, addrWallet);
 
         UserQueryRepository userQueryRepo = new UserQueryRepositoryImpl(userGrpcClient);
         MerchantQueryRepository merchantQueryRepo = new MerchantQueryRepositoryImpl(merchantGrpcClient);
         OrderQueryRepository orderQueryRepo = new OrderQueryRepositoryImpl(orderGrpcClient);
         OrderItemRepository orderItemRepo = new OrderItemRepositoryImpl(orderItemGrpcClient);
         ShippingAddressQueryRepository shippingAddressRepo = new ShippingAddressQueryRepositoryImpl(shippingGrpcClient);
+        WalletCommandRepository walletRepo = new WalletCommandRepositoryImpl(walletGrpcClient);
 
         // 4. Initialize Kafka Service
         Map<String, String> kafkaConfig = new HashMap<>();
@@ -167,6 +178,37 @@ public class TransactionVerticle extends AbstractVerticle {
         RedisAPI redisAPI = RedisConfig.createClient(vertx);
         RedisService redisService = new RedisService(redisAPI, openTelemetry);
 
+        // 5b. Initialize Outbox table & repository
+        OutboxRepository outboxRepo = new OutboxRepositoryImpl(chaosPool);
+        // Ensure outbox table exists before starting the publisher.
+        Future<Void> outboxReady = chaosPool.query("""
+                CREATE TABLE IF NOT EXISTS outbox (
+                    id              SERIAL PRIMARY KEY,
+                    aggregate_type  VARCHAR(50)  NOT NULL,
+                    aggregate_id    VARCHAR(50)  NOT NULL,
+                    event_type      VARCHAR(100) NOT NULL,
+                    payload         JSONB        NOT NULL,
+                    topic           VARCHAR(100) NOT NULL,
+                    key             VARCHAR(255) NOT NULL,
+                    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+                    published_at    TIMESTAMP    DEFAULT NULL,
+                    claimed_until   TIMESTAMP    DEFAULT NULL
+                )
+                """)
+                .execute()
+                .compose(ignored -> chaosPool.query("""
+                        ALTER TABLE outbox ADD COLUMN IF NOT EXISTS claimed_until TIMESTAMP DEFAULT NULL
+                        """).execute())
+                .compose(ignored -> chaosPool.query("""
+                        CREATE INDEX IF NOT EXISTS idx_outbox_unpublished
+                            ON outbox (created_at ASC) WHERE published_at IS NULL
+                        """).execute())
+                .compose(ignored -> chaosPool.query("""
+                        CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_event_destination
+                            ON outbox (aggregate_type, aggregate_id, event_type, topic, key)
+                        """).execute())
+                .mapEmpty();
+
         // 6. Initialize Kafka Consumer Service (internal event processing)
         this.kafkaConsumerService = new TransactionKafkaConsumerService(vertx, redisService, openTelemetry);
 
@@ -174,8 +216,13 @@ public class TransactionVerticle extends AbstractVerticle {
         TransactionQueryService queryService = new TransactionQueryServiceImpl(queryRepo, redisService, tracingMetrics);
         TransactionCommandService cmdService = new TransactionCommandServiceImpl(
                 cmdRepo, queryRepo, merchantQueryRepo, orderQueryRepo, orderItemRepo, shippingAddressRepo,
-                userQueryRepo,
+                userQueryRepo, walletRepo, outboxRepo,
                 redisService, tracingMetrics, kafkaService);
+
+        // 7b. Initialize Outbox Publisher (background worker)
+        this.outboxPublisher = new OutboxPublisher(outboxRepo, kafkaService, vertx);
+        outboxReady.onSuccess(v -> this.outboxPublisher.start())
+                .onFailure(err -> log.error("Outbox initialization failed", err));
         TransactionStatsService statsService = new TransactionStatsServiceImpl(statsRepo, redisService, tracingMetrics);
         TransactionStatsByMerchantService merchantStatsService = new TransactionStatsByMerchantServiceImpl(
                 merchantStatsRepo, redisService, tracingMetrics);
@@ -209,6 +256,9 @@ public class TransactionVerticle extends AbstractVerticle {
         }
         if (kafkaService != null) {
             kafkaService.close();
+        }
+        if (outboxPublisher != null) {
+            outboxPublisher.stop();
         }
         if (kafkaConsumerService != null) {
             kafkaConsumerService.close();

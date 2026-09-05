@@ -37,5 +37,4 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl email -am -DskipTe
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/email/target/email-*-fat.jar app.jar
-COPY chaos.yaml .
 ENTRYPOINT ["java", "-jar", "app.jar"]

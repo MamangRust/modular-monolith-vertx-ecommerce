@@ -12,6 +12,7 @@ import pb.order.OrderCommon.ApiResponseOrderDelete;
 import pb.order.OrderCommon.ApiResponseOrderDeleteAt;
 import pb.order.OrderCommon.FindByIdOrderRequest;
 import pb.order.VertxOrderCommandServiceGrpcServer.OrderCommandServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class OrderCommandHandler implements OrderCommandServiceApi {
@@ -62,17 +63,19 @@ public class OrderCommandHandler implements OrderCommandServiceApi {
                                                                 .quantity(item.getQuantity())
                                                                 .build())
                                                 .toList())
-                                .shippingAddress(io.example.order.domain.requests.UpdateShippingAddressRequest.builder()
-                                                .shippingId((long) req.getShipping().getShippingId())
-                                                .orderId((long) req.getOrderId())
-                                                .alamat(req.getShipping().getAlamat())
-                                                .provinsi(req.getShipping().getProvinsi())
-                                                .negara(req.getShipping().getNegara())
-                                                .kota(req.getShipping().getKota())
-                                                .courier(req.getShipping().getCourier())
-                                                .shippingMethod(req.getShipping().getShippingMethod())
-                                                .shippingCost(req.getShipping().getShippingCost())
-                                                .build())
+                                .shippingAddress(req.hasShipping()
+                                                ? io.example.order.domain.requests.UpdateShippingAddressRequest.builder()
+                                                                .shippingId((long) req.getShipping().getShippingId())
+                                                                .orderId((long) req.getOrderId())
+                                                                .alamat(req.getShipping().getAlamat())
+                                                                .provinsi(req.getShipping().getProvinsi())
+                                                                .negara(req.getShipping().getNegara())
+                                                                .kota(req.getShipping().getKota())
+                                                                .courier(req.getShipping().getCourier())
+                                                                .shippingMethod(req.getShipping().getShippingMethod())
+                                                                .shippingCost(req.getShipping().getShippingCost())
+                                                                .build()
+                                                : null)
                                 .build();
 
                 return service.updateOrder(command)
@@ -135,4 +138,16 @@ public class OrderCommandHandler implements OrderCommandServiceApi {
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.order.VertxOrderCommandServiceGrpcServer.OrderCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.TrashedOrder, this::trashedOrder);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.RestoreOrder, this::restoreOrder);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.DeleteOrderPermanent, this::deleteOrderPermanent);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.RestoreAllOrder, this::restoreAllOrder);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderCommandServiceGrpcServer.DeleteAllOrderPermanent, this::deleteAllOrderPermanent);
+    return this;
+  }
 }

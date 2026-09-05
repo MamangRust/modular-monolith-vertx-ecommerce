@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package pb.wallet;
+
+import "wallet/wallet_common.proto";
+
+option go_package = "github.com/MamangRust/monolith-ecommerce-shared/pb";
+
+service WalletCommandService {
+    rpc Debit(DebitWalletRequest) returns (ApiResponseSaldo);
+    rpc Credit(CreditWalletRequest) returns (ApiResponseSaldo);
+}

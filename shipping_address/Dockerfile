@@ -37,6 +37,5 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl shipping_address -
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/shipping_address/target/shipping_address-*-fat.jar app.jar
-COPY chaos.yaml .
 EXPOSE 50063
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -48,8 +48,8 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                 .preparedQuery("""
                         UPDATE order_items
                         SET
-                            quantity = $2,
-                            price = $3,
+                            quantity = COALESCE(NULLIF($2::INT, 0), quantity),
+                            price = COALESCE(NULLIF($3::INT, 0), price),
                             updated_at = CURRENT_TIMESTAMP
                         WHERE
                             order_item_id = $1
@@ -65,7 +65,7 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                             deleted_at
                         """)
                 .execute(Tuple.of(req.getOrderItemId() != null ? req.getOrderItemId().longValue() : null,
-                        req.getQuantity(), req.getPrice()))
+                        req.getQuantity() != null ? req.getQuantity() : 0, req.getPrice() != null ? req.getPrice() : 0))
                 .map(this::mapSingleOrNull);
     }
 
@@ -137,7 +137,6 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
                         DELETE FROM order_items
                         WHERE
                             order_id = $1
-                            AND deleted_at IS NOT NULL
                         """)
                 .execute(Tuple.of(orderId))
                 .map(rows -> rows.rowCount() > 0);

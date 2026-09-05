@@ -1,6 +1,7 @@
 package io.example.role.handler;
 
 import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.common.grpc.GrpcServerBinder;
 import io.example.role.domain.requests.FindAllRolesRequest;
 import io.example.role.service.RoleQueryService;
 import io.vertx.core.Future;
@@ -96,5 +97,15 @@ public class RoleQueryHandler implements pb.VertxRoleQueryServiceGrpcServer.Role
             .addAllData(res.stream().map(ProtoConverter::fromRoleResponse).toList())
             .build())
         .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+  }
+
+  @Override
+  public pb.VertxRoleQueryServiceGrpcServer.RoleQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.VertxRoleQueryServiceGrpcServer.FindAllRole, this::findAllRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleQueryServiceGrpcServer.FindByIdRole, this::findByIdRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.VertxRoleQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    GrpcServerBinder.bind(server, pb.VertxRoleQueryServiceGrpcServer.FindByUserId, this::findByUserId);
+    return this;
   }
 }

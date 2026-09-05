@@ -9,7 +9,7 @@ import io.vertx.core.Future;
 public interface MerchantDetailQueryService {
   Future<PagedResult<MerchantDetailResponse>> getMerchantDetails(FindAllMerchantDetailRequest req);
 
-  Future<PagedResult<MerchantDetailResponse>> getMerchantDetailsActive(FindAllMerchantDetailRequest req);
+  Future<PagedResult<MerchantDetailResponseDeleteAt>> getMerchantDetailsActive(FindAllMerchantDetailRequest req);
 
   Future<PagedResult<MerchantDetailResponseDeleteAt>> getMerchantDetailsTrashed(FindAllMerchantDetailRequest req);
 

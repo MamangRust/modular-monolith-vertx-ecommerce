@@ -13,6 +13,7 @@ import pb.merchant_business.MerchantBusinessCommon.ApiResponseMerchantBusiness;
 import pb.merchant_business.MerchantBusinessCommon.ApiResponsePaginationMerchantBusiness;
 import pb.merchant_business.MerchantBusinessCommon.ApiResponsePaginationMerchantBusinessDeleteAt;
 import pb.merchant_business.MerchantBusinessCommon.FindByIdMerchantBusinessRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantBusinessQueryHandler
@@ -90,5 +91,14 @@ public class MerchantBusinessQueryHandler
             .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.merchant_business.VertxMerchantBusinessQueryServiceGrpcServer.MerchantBusinessQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
   }
 }

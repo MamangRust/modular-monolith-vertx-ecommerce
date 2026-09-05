@@ -104,7 +104,7 @@ public class CartProxyHandler {
             return -1;
         }
 
-        int userId = ctx.user().principal().getInteger("userId", 0);
+        int userId = GrpcGatewayUtils.getUserId(ctx);
         if (userId == 0) {
             ctx.fail(new UnauthorizedException("Invalid user token payload"));
             return -1;

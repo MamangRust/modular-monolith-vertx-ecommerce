@@ -38,18 +38,18 @@ public class MerchantDetailCommandRepositoryImpl implements MerchantDetailComman
                 return pool
                                 .preparedQuery("""
                                                 UPDATE merchant_details
-                                                SET display_name = $2, cover_image_url = $3, logo_url = $4,
-                                                    short_description = $5, website_url = $6, updated_at = CURRENT_TIMESTAMP
+                                                SET display_name = COALESCE(NULLIF($2, ''), display_name), cover_image_url = COALESCE(NULLIF($3, ''), cover_image_url), logo_url = COALESCE(NULLIF($4, ''), logo_url),
+                                                    short_description = COALESCE(NULLIF($5, ''), short_description), website_url = COALESCE(NULLIF($6, ''), website_url), updated_at = CURRENT_TIMESTAMP
                                                 WHERE merchant_detail_id = $1 AND deleted_at IS NULL
                                                 RETURNING *
                                                 """)
                                 .execute(Tuple.of(
                                                 (long) req.getMerchantDetailId(),
-                                                req.getDisplayName(),
-                                                req.getCoverImageUrl(),
-                                                req.getLogoUrl(),
-                                                req.getShortDescription(),
-                                                req.getWebsiteUrl()))
+                                                req.getDisplayName() != null ? req.getDisplayName() : "",
+                                                req.getCoverImageUrl() != null ? req.getCoverImageUrl() : "",
+                                                req.getLogoUrl() != null ? req.getLogoUrl() : "",
+                                                req.getShortDescription() != null ? req.getShortDescription() : "",
+                                                req.getWebsiteUrl() != null ? req.getWebsiteUrl() : ""))
                                 .map(rows -> rows.iterator().hasNext() ? MerchantDetail.fromRow(rows.iterator().next())
                                                 : null);
         }
@@ -77,7 +77,12 @@ public class MerchantDetailCommandRepositoryImpl implements MerchantDetailComman
         @Override
         public Future<Boolean> deletePermanent(Long id) {
                 return pool
-                                .preparedQuery("DELETE FROM merchant_details WHERE merchant_detail_id = $1 AND deleted_at IS NOT NULL")
+                                .preparedQuery("""
+                                        WITH deleted_links AS (
+                                            DELETE FROM merchant_social_media_links WHERE merchant_detail_id = $1
+                                        )
+                                        DELETE FROM merchant_details WHERE merchant_detail_id = $1 AND deleted_at IS NOT NULL
+                                        """)
                                 .execute(Tuple.of(id))
                                 .map(row -> row.rowCount() > 0);
         }

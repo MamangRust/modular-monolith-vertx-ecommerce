@@ -1,5 +1,6 @@
 package io.example.merchant_policy.handler;
 
+import io.example.common.grpc.GrpcExceptionMapper; 
 import io.example.merchant_policy.service.MerchantPoliciesQueryService;
 import io.example.merchant_policy.domain.requests.FindAllMerchantPoliciesRequest;
 import io.vertx.core.Future;
@@ -9,6 +10,7 @@ import pb.merchant_policy.MerchantPolicyCommon.ApiResponseMerchantPolicies;
 import pb.merchant_policy.MerchantPolicyCommon.ApiResponsePaginationMerchantPolicies;
 import pb.merchant_policy.MerchantPolicyCommon.ApiResponsePaginationMerchantPoliciesDeleteAt;
 import pb.merchant_policy.MerchantPolicyCommon.FindByIdMerchantPoliciesRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantPolicyQueryHandler
@@ -41,7 +43,8 @@ public class MerchantPolicyQueryHandler
             .setMessage("Data fetched successfully")
             .addAllData(result.getData().stream().map(ProtoConverter::toProto).toList())
             .setPagination(buildMeta(page, pageSize, result.getTotalRecords()))
-            .build());
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture); 
   }
 
   @Override
@@ -55,7 +58,8 @@ public class MerchantPolicyQueryHandler
             builder.setData(ProtoConverter.toProto(resp));
           }
           return builder.build();
-        });
+        })
+        .recover(GrpcExceptionMapper::toFailedFuture); 
   }
 
   @Override
@@ -74,7 +78,8 @@ public class MerchantPolicyQueryHandler
             .setMessage("Data fetched successfully")
             .addAllData(result.getData().stream().map(ProtoConverter::toProto).toList())
             .setPagination(buildMeta(page, pageSize, result.getTotalRecords()))
-            .build());
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture); 
   }
 
   @Override
@@ -93,6 +98,16 @@ public class MerchantPolicyQueryHandler
             .setMessage("Data fetched successfully")
             .addAllData(result.getData().stream().map(ProtoConverter::toProto).toList())
             .setPagination(buildMeta(page, pageSize, result.getTotalRecords()))
-            .build());
+            .build())
+        .recover(GrpcExceptionMapper::toFailedFuture); 
+  }
+
+  @Override
+  public pb.merchant_policy.VertxMerchantPolicyQueryServiceGrpcServer.MerchantPolicyQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
   }
 }

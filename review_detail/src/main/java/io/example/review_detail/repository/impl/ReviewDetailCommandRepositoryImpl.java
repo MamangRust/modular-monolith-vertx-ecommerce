@@ -41,9 +41,9 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
                 .preparedQuery("""
                         UPDATE review_details
                         SET
-                            type = $1,
-                            url = $2,
-                            caption = $3
+                            type = COALESCE(NULLIF($1, ''), type),
+                            url = COALESCE(NULLIF($2, ''), url),
+                            caption = COALESCE(NULLIF($3, ''), caption)
                         WHERE
                             review_detail_id = $4
                         RETURNING
@@ -55,7 +55,7 @@ public class ReviewDetailCommandRepositoryImpl implements ReviewDetailCommandRep
                             created_at,
                             updated_at
                         """)
-                .execute(Tuple.of(req.getType(), req.getFile(), req.getCaption(), req.getReviewDetailId()))
+                .execute(Tuple.of(req.getType() != null ? req.getType() : "", req.getFile() != null ? req.getFile() : "", req.getCaption() != null ? req.getCaption() : "", req.getReviewDetailId()))
                 .map(this::mapSingleOrNull);
     }
 

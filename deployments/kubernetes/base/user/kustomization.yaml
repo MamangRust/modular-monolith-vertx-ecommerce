@@ -5,3 +5,5 @@ resources:
 - user-deployment.yaml
 - user-hpa.yaml
 - user-service.yaml
+- pdb.yaml
+- network-policy.yaml

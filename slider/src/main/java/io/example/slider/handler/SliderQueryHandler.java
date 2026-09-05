@@ -9,6 +9,7 @@ import pb.slider.SliderCommon.ApiResponsePaginationSlider;
 import pb.slider.SliderCommon.ApiResponsePaginationSliderDeleteAt;
 import pb.slider.SliderCommon.ApiResponseSlider;
 import pb.slider.SliderCommon.FindByIdSliderRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class SliderQueryHandler implements pb.slider.VertxSliderQueryServiceGrpcServer.SliderQueryServiceApi {
@@ -87,4 +88,13 @@ public class SliderQueryHandler implements pb.slider.VertxSliderQueryServiceGrpc
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.slider.VertxSliderQueryServiceGrpcServer.SliderQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
+  }
 }

@@ -5,3 +5,5 @@ resources:
 - review-deployment.yaml
 - review-hpa.yaml
 - review-service.yaml
+- pdb.yaml
+- network-policy.yaml

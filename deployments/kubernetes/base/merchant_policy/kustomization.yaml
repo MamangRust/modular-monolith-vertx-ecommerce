@@ -5,3 +5,5 @@ resources:
 - merchant_policy-deployment.yaml
 - merchant_policy-hpa.yaml
 - merchant_policy-service.yaml
+- pdb.yaml
+- network-policy.yaml

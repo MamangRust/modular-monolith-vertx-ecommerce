@@ -5,3 +5,5 @@ resources:
 - merchant_detail-deployment.yaml
 - merchant_detail-hpa.yaml
 - merchant_detail-service.yaml
+- pdb.yaml
+- network-policy.yaml

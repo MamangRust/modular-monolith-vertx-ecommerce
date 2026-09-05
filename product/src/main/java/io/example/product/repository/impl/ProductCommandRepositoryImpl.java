@@ -83,16 +83,16 @@ public class ProductCommandRepositoryImpl implements ProductCommandRepository {
                 .preparedQuery("""
                         UPDATE products
                         SET
-                            category_id = $2,
-                            name = $3,
-                            description = $4,
-                            price = $5,
-                            count_in_stock = $6,
-                            brand = $7,
-                            weight = $8,
-                            rating = $9,
-                            slug_product = $10,
-                            image_product = $11,
+                            category_id = COALESCE(NULLIF($2, 0), category_id),
+                            name = COALESCE(NULLIF($3, ''), name),
+                            description = COALESCE(NULLIF($4, ''), description),
+                            price = COALESCE(NULLIF($5, 0), price),
+                            count_in_stock = COALESCE(NULLIF($6, 0), count_in_stock),
+                            brand = COALESCE(NULLIF($7, ''), brand),
+                            weight = COALESCE(NULLIF($8, 0), weight),
+                            rating = COALESCE(NULLIF($9, 0.0), rating),
+                            slug_product = COALESCE(NULLIF($10, ''), slug_product),
+                            image_product = COALESCE(NULLIF($11, ''), image_product),
                             updated_at = CURRENT_TIMESTAMP
                         WHERE
                             product_id = $1
@@ -157,6 +157,67 @@ public class ProductCommandRepositoryImpl implements ProductCommandRepository {
                         """)
                 .execute(Tuple.of(productId, countInStock))
                 .map(this::mapSingleOrNull);
+    }
+
+    @Override
+    public Future<Product> decrementStock(Integer productId, Integer quantity) {
+        return client
+                .preparedQuery("""
+                        UPDATE products
+                        SET
+                            count_in_stock = count_in_stock - $2,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE
+                            product_id = $1
+                            AND count_in_stock >= $2
+                            AND deleted_at IS NULL
+                        RETURNING
+                            product_id,
+                            merchant_id,
+                            category_id,
+                            name,
+                            description,
+                            price,
+                            count_in_stock,
+                            brand,
+                            weight,
+                            rating,
+                            slug_product,
+                            image_product,
+                            created_at,
+                            updated_at
+                        """)
+                .execute(Tuple.of(productId, quantity))
+                .map(rows -> {
+                    if (!rows.iterator().hasNext()) {
+                        throw new io.example.common.exception.grpc.BadRequestException(
+                                "Insufficient stock for product ID: " + productId);
+                    }
+                    return Product.fromRow(rows.iterator().next());
+                });
+    }
+
+    @Override
+    public Future<Product> incrementStock(Integer productId, Integer quantity) {
+        return client
+                .preparedQuery("""
+                        UPDATE products
+                        SET count_in_stock = count_in_stock + $2,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE product_id = $1
+                          AND deleted_at IS NULL
+                        RETURNING product_id, merchant_id, category_id, name, description, price,
+                                  count_in_stock, brand, weight, rating, slug_product, image_product,
+                                  created_at, updated_at
+                        """)
+                .execute(Tuple.of(productId, quantity))
+                .map(rows -> {
+                    if (!rows.iterator().hasNext()) {
+                        throw new io.example.common.exception.grpc.NotFoundException(
+                                "Product not found: " + productId);
+                    }
+                    return Product.fromRow(rows.iterator().next());
+                });
     }
 
     @Override

@@ -5,3 +5,5 @@ resources:
 - email-deployment.yaml
 - email-hpa.yaml
 - email-service.yaml
+- pdb.yaml
+- network-policy.yaml

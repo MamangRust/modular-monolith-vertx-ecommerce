@@ -31,6 +31,7 @@ public class AuthProxyHandler {
         .setLastname(GrpcGatewayUtils.getJsonString(body, "lastname", ""))
         .setEmail(email)
         .setPassword(password)
+        .setConfirmPassword(GrpcGatewayUtils.getJsonString(body, "confirm_password", ""))
         .build();
 
     client.registerUser(req)
@@ -83,7 +84,7 @@ public class AuthProxyHandler {
       return;
     }
 
-    int userId = ctx.user().principal().getInteger("userId", 0);
+    int userId = GrpcGatewayUtils.getUserId(ctx);
     if (userId == 0) {
       ctx.fail(new UnauthorizedException("Invalid user token payload"));
       return;

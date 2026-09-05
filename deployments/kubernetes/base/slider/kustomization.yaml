@@ -5,3 +5,5 @@ resources:
 - slider-deployment.yaml
 - slider-hpa.yaml
 - slider-service.yaml
+- pdb.yaml
+- network-policy.yaml

@@ -37,6 +37,5 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl role -am -DskipTes
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/role/target/role-*-fat.jar app.jar
-COPY chaos.yaml .
 EXPOSE 50052
 ENTRYPOINT ["java", "-jar", "app.jar"]

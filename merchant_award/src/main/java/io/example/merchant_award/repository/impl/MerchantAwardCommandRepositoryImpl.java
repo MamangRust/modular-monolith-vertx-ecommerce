@@ -45,13 +45,13 @@ public class MerchantAwardCommandRepositoryImpl implements MerchantAwardCommandR
 
     return pool.preparedQuery("""
         UPDATE merchant_certifications_and_awards
-        SET title = $2, description = $3, issued_by = $4, issue_date = $5,
-            expiry_date = $6, certificate_url = $7, updated_at = CURRENT_TIMESTAMP
+        SET title = COALESCE(NULLIF($2, ''), title), description = COALESCE(NULLIF($3, ''), description), issued_by = COALESCE(NULLIF($4, ''), issued_by), issue_date = COALESCE(NULLIF($5::TEXT, ''), issue_date),
+            expiry_date = COALESCE(NULLIF($6::TEXT, ''), expiry_date), certificate_url = COALESCE(NULLIF($7, ''), certificate_url), updated_at = CURRENT_TIMESTAMP
         WHERE merchant_certification_id = $1 AND deleted_at IS NULL
         RETURNING *;
         """)
-        .execute(Tuple.of(req.getMerchantCertificationId(), req.getTitle(), req.getDescription(),
-            req.getIssuedBy(), issueDate, expiryDate, req.getCertificateUrl()))
+        .execute(Tuple.of(req.getMerchantCertificationId(), req.getTitle() != null ? req.getTitle() : "", req.getDescription() != null ? req.getDescription() : "",
+            req.getIssuedBy() != null ? req.getIssuedBy() : "", req.getIssueDate() != null ? req.getIssueDate() : "", req.getExpiryDate() != null ? req.getExpiryDate() : "", req.getCertificateUrl() != null ? req.getCertificateUrl() : ""))
         .map(rows -> {
           if (rows.iterator().hasNext()) {
             return MerchantAward.fromRow(rows.iterator().next());

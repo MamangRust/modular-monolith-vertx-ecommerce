@@ -10,9 +10,9 @@ import io.example.category.domain.requests.UpdateCategoryRequest;
 import io.example.category.model.CategoryResponse;
 import io.example.category.model.CategoryResponseDeleteAt;
 import io.example.category.repository.CategoryCommandRepository;
-import io.example.category.repository.CategoryQueryRepository;
 import io.example.category.service.CategoryCommandService;
 import io.example.common.exception.grpc.BadRequestException;
+import io.example.common.exception.grpc.ConflictException;
 import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
@@ -26,11 +26,17 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
     private static final Logger logger = LoggerFactory.getLogger(CategoryCommandServiceImpl.class);
 
     private final CategoryCommandRepository repo;
-    private final CategoryQueryRepository queryRepo;
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final String CACHE_PREFIX = "category:";
+
+    private Future<Void> evictCaches() {
+        return redis.deleteByPattern(CACHE_PREFIX + "*")
+                .onFailure(err -> logger.warn("Category cache eviction failed: {}", err.getMessage()))
+                .recover(err -> Future.succeededFuture(0L))
+                .<Void>mapEmpty();
+    }
 
     @Override
     public Future<CategoryResponse> create(CreateCategoryRequest req) {
@@ -47,10 +53,28 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
                     metrics.completeSpanSuccess(ctx, "create", "Category created successfully");
                     return CategoryResponse.from(created);
                 })
-                .onFailure(err -> {
+                .recover(err -> {
                     logger.error("Failed to create category: {}", req.getName(), err);
                     metrics.completeSpanError(ctx, "create", err.getMessage());
+                    if (isUniqueViolation(err)) {
+                        return Future.failedFuture(new ConflictException(
+                                "Category with slug '" + req.getSlugCategory() + "' already exists"));
+                    }
+                    return Future.failedFuture(err);
                 });
+    }
+
+    private boolean isUniqueViolation(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current.getMessage() != null && (current.getMessage().contains("23505")
+                    || current.getMessage().toLowerCase().contains("duplicate key")
+                    || current.getMessage().contains("uq_categories_active_slug"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @Override
@@ -58,7 +82,7 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
         Long id = req.getId();
         var ctx = metrics.startSpan(
                 "CategoryCommandService.update",
-                Attributes.builder().put("category.id", id).put("category.name", Objects.requireNonNull(req.getName()))
+                Attributes.builder().put("category.id", id).put("category.name", req.getName() != null ? req.getName() : "")
                         .build());
 
         logger.info("Updating category: {}, name: {}", id, req.getName());
@@ -68,14 +92,8 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
                     if (updated == null) {
                         return Future.failedFuture(new NotFoundException("Category not found"));
                     }
-                    String cacheKey = CACHE_PREFIX + "id:" + id;
-                    return redis.delete(cacheKey)
-                            .onSuccess(deleted -> {
-                                if (deleted > 0) {
-                                    logger.debug("Category {} cache invalidated", id);
-                                }
-                            })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for category {}: {}", id,
+                    return evictCaches()
+                            .onFailure(err -> logger.warn("Failed to invalidate category caches for {}: {}", id,
                                     err.getMessage()))
                             .map(updated);
                 })
@@ -102,14 +120,8 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
                     if (trashed == null) {
                         return Future.failedFuture(new NotFoundException("Category not found with id: " + id));
                     }
-                    String cacheKey = CACHE_PREFIX + "id:" + id;
-                    return redis.delete(cacheKey)
-                            .onSuccess(deleted -> {
-                                if (deleted > 0) {
-                                    logger.debug("Category {} cache invalidated on trash", id);
-                                }
-                            })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for trashed category {}: {}", id,
+                    return evictCaches()
+                            .onFailure(err -> logger.warn("Failed to invalidate category caches after trash {}: {}", id,
                                     err.getMessage()))
                             .map(trashed);
                 })
@@ -131,27 +143,15 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
 
         logger.info("Restoring category: {}", id);
 
-        return queryRepo.getCategoryByIdTrashed(id)
-                .compose(trashed -> {
-                    if (trashed == null) {
+        return repo.restoreCategory(id)
+                .compose(restored -> {
+                    if (restored == null) {
                         return Future.failedFuture(new BadRequestException("Category not found or must be trashed first"));
                     }
-                    return repo.restoreCategory(id);
-                })
-                .compose(r -> {
-                    if (r == null) {
-                        return Future.failedFuture(new NotFoundException("Category not found"));
-                    }
-                    String cacheKey = CACHE_PREFIX + "id:" + id;
-                    return redis.delete(cacheKey)
-                            .onSuccess(deleted -> {
-                                if (deleted > 0) {
-                                    logger.debug("Category {} cache invalidated on restore", id);
-                                }
-                            })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for restored category {}: {}", id,
+                    return evictCaches()
+                            .onFailure(err -> logger.warn("Failed to invalidate category caches after restore {}: {}", id,
                                     err.getMessage()))
-                            .map(r);
+                            .map(restored);
                 })
                 .map(CategoryResponseDeleteAt::from)
                 .onSuccess(v -> metrics.completeSpanSuccess(ctx, "restore", "Category restored successfully"))
@@ -169,24 +169,15 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
 
         logger.info("Permanently deleting category: {}", id);
 
-        return queryRepo.getCategoryByIdTrashed(id)
-                .compose(category -> {
-                    if (category == null) {
+        return repo.deleteCategoryPermanently(id)
+                .compose(deleted -> {
+                    if (!deleted) {
                         return Future.failedFuture(new NotFoundException("Trashed category not found with id: " + id));
                     }
-                    return repo.deleteCategoryPermanently(id);
-                })
-                .compose(v -> {
-                    String cacheKey = CACHE_PREFIX + "id:" + id;
-                    return redis.delete(cacheKey)
-                            .onSuccess(deleted -> {
-                                if (deleted > 0) {
-                                    logger.debug("Category {} cache invalidated on permanent delete", id);
-                                }
-                            })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for deleted category {}: {}", id,
+                    return evictCaches()
+                            .onFailure(err -> logger.warn("Failed to invalidate category caches after delete {}: {}", id,
                                     err.getMessage()))
-                            .map(v);
+                            .map(deleted);
                 })
                 .map(v -> {
                     logger.info("Category deleted permanently: {}", id);
@@ -210,7 +201,7 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
                     if (rows == 0) {
                         return Future.failedFuture(new NotFoundException("No trashed categories found"));
                     }
-                    return Future.succeededFuture(rows);
+                    return evictCaches().map(rows);
                 })
                 .onSuccess(rows -> {
                     logger.info("Restored {} trashed categories", rows);
@@ -233,7 +224,7 @@ public class CategoryCommandServiceImpl implements CategoryCommandService {
                     if (rows == 0) {
                         return Future.failedFuture(new NotFoundException("No trashed categories found"));
                     }
-                    return Future.succeededFuture(rows);
+                    return evictCaches().map(rows);
                 })
                 .onSuccess(rows -> {
                     logger.info("All trashed categories deleted permanently. Total: {}", rows);

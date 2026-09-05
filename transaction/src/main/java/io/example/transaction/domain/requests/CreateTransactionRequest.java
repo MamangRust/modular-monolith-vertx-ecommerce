@@ -15,4 +15,6 @@ public class CreateTransactionRequest {
     private String paymentMethod;
     private Integer amount;
     private String paymentStatus;
+    private String cardNumber;
+    private String idempotencyKey;
 }

@@ -1,13 +1,13 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: review_detail-hpa
+  name: review-detail-hpa
   namespace: ecommerce
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: review_detail
+    name: review-detail
   minReplicas: 2
   maxReplicas: 10
   metrics:

@@ -93,7 +93,9 @@ public class CategoryVerticle extends AbstractVerticle {
                 .setPort(dbCfg.getInteger("port", 5432))
                 .setDatabase(dbCfg.getString("database", "vertxdb"))
                 .setUser(dbCfg.getString("user", "vertx"))
-                .setPassword(dbCfg.getString("password", "vertx"));
+                .setPassword(dbCfg.getString("password", "vertx"))
+                // PgBouncer uses transaction pooling; do not reuse session-bound prepared statements.
+                .setCachePreparedStatements(false);
 
         PoolOptions poolOptions = new PoolOptions()
                 .setMaxSize(dbCfg.getInteger("pool_size", 5));
@@ -115,7 +117,7 @@ public class CategoryVerticle extends AbstractVerticle {
 
         // 4. Initialize Services
         var queryService = new CategoryQueryServiceImpl(queryRepo, redisService, tracingMetrics);
-        var cmdService = new CategoryCommandServiceImpl(cmdRepo, queryRepo, redisService, tracingMetrics);
+        var cmdService = new CategoryCommandServiceImpl(cmdRepo, redisService, tracingMetrics);
         var statsService = new CategoryStatsServiceImpl(statsRepo, redisService, tracingMetrics);
         var statsByIdService = new CategoryStatsByIdServiceImpl(statsByIdRepo, redisService, tracingMetrics);
         var statsByMerchantService = new CategoryStatsByMerchantServiceImpl(statsByMerchantRepo, redisService,

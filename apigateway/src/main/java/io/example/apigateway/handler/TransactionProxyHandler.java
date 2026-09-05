@@ -102,6 +102,8 @@ public class TransactionProxyHandler {
                                 .setAmount(GrpcGatewayUtils.getJsonInteger(body, "amount", 0))
                                 .setUserId(GrpcGatewayUtils.getJsonInteger(body, "user_id", 0))
                                 .setPaymentStatus(GrpcGatewayUtils.getJsonString(body, "payment_status", ""))
+                                .setCardNumber(GrpcGatewayUtils.getJsonString(body, "card_number", ""))
+                                .setIdempotencyKey(GrpcGatewayUtils.getJsonString(body, "idempotency_key", ""))
                                 .build();
 
                 commandClient.create(req)

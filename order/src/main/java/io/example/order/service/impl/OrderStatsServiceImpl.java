@@ -53,7 +53,10 @@ public class OrderStatsServiceImpl implements OrderStatsService {
                             .compose(list -> redis.setJson(cacheKey, list, CACHE_TTL).map(v -> list));
                 })
                 .onSuccess(r -> metrics.completeSpanSuccess(ctx, "getMonthlyTotalRevenue", "Success"))
-                .onFailure(e -> metrics.completeSpanError(ctx, "getMonthlyTotalRevenue", e.getMessage()));
+                .onFailure(e -> {
+                    log.error("Failed monthly total revenue stats for year={}, month={}", req.getYear(), req.getMonth(), e);
+                    metrics.completeSpanError(ctx, "getMonthlyTotalRevenue", e.getMessage());
+                });
     }
 
     @Override

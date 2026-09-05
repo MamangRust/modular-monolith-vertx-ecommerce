@@ -10,6 +10,7 @@ import pb.order_item.OrderItemCommon.ApiResponsePaginationOrderItemDeleteAt;
 import pb.order_item.OrderItemCommon.ApiResponsesOrderItem;
 import pb.order_item.OrderItemCommon.FindByIdOrderItemRequest;
 import pb.order_item.VertxOrderItemQueryServiceGrpcServer.OrderItemQueryServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class OrderItemQueryHandler implements OrderItemQueryServiceApi {
@@ -93,4 +94,13 @@ public class OrderItemQueryHandler implements OrderItemQueryServiceApi {
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.order_item.VertxOrderItemQueryServiceGrpcServer.OrderItemQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemQueryServiceGrpcServer.FindOrderItemByOrder, this::findOrderItemByOrder);
+    return this;
+  }
 }

@@ -94,7 +94,9 @@ public class AuthVerticle extends AbstractVerticle {
         .setPort(dbCfg.getInteger("port", 5432))
         .setDatabase(dbCfg.getString("database", "vertxdb"))
         .setUser(dbCfg.getString("user", "vertx"))
-        .setPassword(dbCfg.getString("password", "vertx"));
+        .setPassword(dbCfg.getString("password", "vertx"))
+        // PgBouncer uses transaction pooling; do not reuse session-bound prepared statements.
+        .setCachePreparedStatements(false);
 
     PoolOptions poolOptions = new PoolOptions()
         .setMaxSize(dbCfg.getInteger("pool_size", 5));
@@ -154,6 +156,7 @@ public class AuthVerticle extends AbstractVerticle {
         tokenService,
         tracingMetrics);
 
+
     // 5. Initialize Unified Handler
     AuthHandler handler = new AuthHandler(registerService, identityService, passwordResetService,
         loginService);
@@ -182,7 +185,7 @@ public class AuthVerticle extends AbstractVerticle {
     stopPromise.complete();
   }
 
-  private Future<Void> startGrpcServer(AuthHandler handler, int grpcPort) {
+  private Future<Void> startGrpcServer(AuthHandler handler,  int grpcPort) {
     GrpcServer grpcServer = GrpcServer.server(vertx);
 
     // Bind the unified API handler onto server

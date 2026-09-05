@@ -100,16 +100,14 @@ public class OrderItemCommandServiceImpl implements OrderItemCommandService {
 
                 logger.info("Restoring order items for order ID: {}", orderId);
 
-                return queryRepository.findByTrashedId(orderId)
-                                .compose(trashed -> {
-                                        if (trashed == null) {
-                                                return Future.failedFuture(new BadRequestException("Order items not found or must be trashed first"));
-                                        }
-                                        return repo.restoreOrderItem(orderId);
-                                })
+                // restoreOrderItem operates on the order_id and restores all
+                // trashed children. Do not pre-check findByTrashedId here: that
+                // query is intentionally keyed by order_item_id and would reject
+                // a valid order restore when the IDs differ.
+                return repo.restoreOrderItem(orderId)
                                 .compose(r -> {
                                         if (r == null || r.isEmpty()) {
-                                                return Future.failedFuture(new NotFoundException("Order items not found"));
+                                                return Future.failedFuture(new NotFoundException("Order items not found or must be trashed first"));
                                         }
                                         return evict(orderId).map(v -> r);
                                 })

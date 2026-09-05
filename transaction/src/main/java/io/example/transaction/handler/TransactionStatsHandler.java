@@ -16,6 +16,7 @@ import pb.transaction.TransactionStats.MonthMethodTransactionRequest;
 import pb.transaction.TransactionStats.YearAmountTransactionRequest;
 import pb.transaction.TransactionStats.YearMethodTransactionRequest;
 import pb.transaction.VertxTransactionStatsServiceGrpcServer;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class TransactionStatsHandler implements VertxTransactionStatsServiceGrpcServer.TransactionStatsServiceApi {
@@ -112,4 +113,17 @@ public class TransactionStatsHandler implements VertxTransactionStatsServiceGrpc
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.transaction.VertxTransactionStatsServiceGrpcServer.TransactionStatsServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetMonthlyAmountSuccess, this::getMonthlyAmountSuccess);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetYearlyAmountSuccess, this::getYearlyAmountSuccess);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetMonthlyAmountFailed, this::getMonthlyAmountFailed);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetYearlyAmountFailed, this::getYearlyAmountFailed);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetMonthlyTransactionMethodSuccess, this::getMonthlyTransactionMethodSuccess);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetYearlyTransactionMethodSuccess, this::getYearlyTransactionMethodSuccess);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetMonthlyTransactionMethodFailed, this::getMonthlyTransactionMethodFailed);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsServiceGrpcServer.GetYearlyTransactionMethodFailed, this::getYearlyTransactionMethodFailed);
+    return this;
+  }
 }

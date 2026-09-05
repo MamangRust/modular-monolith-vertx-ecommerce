@@ -7,252 +7,217 @@ import org.slf4j.LoggerFactory;
 
 import io.example.banner.domain.requests.CreateBannerRequest;
 import io.example.banner.domain.requests.UpdateBannerRequest;
-import io.example.banner.model.Banner;
 import io.example.banner.model.BannerResponse;
 import io.example.banner.model.BannerResponseDeleteAt;
 import io.example.banner.repository.BannerCommandRepository;
 import io.example.banner.service.BannerCommandService;
-import io.example.common.domain.ApiResponse;
 import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.RedisService;
 import io.opentelemetry.api.common.Attributes;
-import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class BannerCommandServiceImpl implements BannerCommandService {
-    private static final Logger logger = LoggerFactory.getLogger(BannerCommandServiceImpl.class);
+    private static final Logger log = LoggerFactory.getLogger(BannerCommandServiceImpl.class);
     private final BannerCommandRepository repo;
-
     private final RedisService redis;
     private final TracingMetrics metrics;
 
     private static final String CACHE_PREFIX = "banner:";
 
     @Override
-    public Future<ApiResponse<BannerResponse>> createBanner(CreateBannerRequest req) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
+    public Future<BannerResponse> createBanner(CreateBannerRequest req) {
+        var ctx = metrics.startSpan(
                 "BannerCommandService.createBanner",
                 Attributes.builder()
                         .put("banner.name", Objects.requireNonNull(req.getName()))
                         .build());
-        Span span = Span.fromContext(Objects.requireNonNull(tracingContext.getContext()));
 
-        logger.info("Creating banner: {}", req.getName());
+        log.info("Creating banner: {}", req.getName());
 
         return repo.createBanner(req)
-                .map(created -> {
-                    span.setAttribute("banner.id", created.getBannerId());
-                    metrics.completeSpanSuccess(tracingContext, "create", "Banner created successfully");
-                    return ApiResponse.success(
-                            "Banner created successfully",
-                            BannerResponse.from(created));
-                })
+                .map(BannerResponse::from)
+                .onSuccess(res -> metrics.completeSpanSuccess(ctx, "create", "Banner created successfully"))
                 .recover(err -> {
-                    logger.error("Failed to create banner: {}", req.getName(), err);
-                    metrics.completeSpanError(tracingContext, "create", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<BannerResponse>error("Failed to create banner: " + err.getMessage()));
+                    log.error("Failed to create banner: {}", req.getName(), err);
+                    metrics.completeSpanError(ctx, "create", err.getMessage());
+                    return Future.failedFuture(err);
                 });
     }
 
     @Override
-    public Future<ApiResponse<BannerResponse>> updateBanner(UpdateBannerRequest req) {
+    public Future<BannerResponse> updateBanner(UpdateBannerRequest req) {
         Long bannerId = (long) req.getBannerId();
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
+        var ctx = metrics.startSpan(
                 "BannerCommandService.updateBanner",
                 Attributes.builder()
                         .put("banner.id", bannerId)
                         .put("banner.name", Objects.requireNonNull(req.getName()))
                         .build());
 
-        logger.info("Updating banner: {}, name: {}", bannerId, req.getName());
+        log.info("Updating banner: {}, name: {}", bannerId, req.getName());
 
         return repo.updateBanner(req)
-                .compose((Banner updatedBanner) -> {
+                .compose(updatedBanner -> {
                     if (updatedBanner == null) {
                         return Future.failedFuture(new NotFoundException("Banner not found"));
                     }
-                    String cacheKey = CACHE_PREFIX + "id:" + bannerId;
+                    String cacheKey = CACHE_PREFIX + bannerId;
                     return redis.delete(cacheKey)
                             .onSuccess(deleted -> {
                                 if (deleted > 0) {
-                                    logger.debug("Banner {} cache invalidated", bannerId);
+                                    log.debug("Banner {} cache invalidated", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for banner {}: {}", bannerId,
-                                    err.getMessage()))
-                            .map(updatedBanner);
+                            .onFailure(err -> log.warn("Failed to invalidate cache for banner {}: {}",
+                                    bannerId, err.getMessage()))
+                            .map(BannerResponse.from(updatedBanner));
                 })
-                .map((Banner updatedBanner) -> {
-                    metrics.completeSpanSuccess(tracingContext, "update", "Banner updated successfully");
-                    return ApiResponse.success(
-                            "Banner updated successfully",
-                            BannerResponse.from(updatedBanner));
-                })
+                .onSuccess(res -> metrics.completeSpanSuccess(ctx, "update", "Banner updated successfully"))
                 .recover(err -> {
-                    logger.error("Failed to update banner: {}", bannerId, err);
-                    metrics.completeSpanError(tracingContext, "update", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<BannerResponse>error("Failed to update banner: " + err.getMessage()));
+                    log.error("Failed to update banner: {}", bannerId, err);
+                    metrics.completeSpanError(ctx, "update", err.getMessage());
+                    return Future.failedFuture(err);
                 });
     }
 
     @Override
-    public Future<ApiResponse<BannerResponseDeleteAt>> trashBanner(Long bannerId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
+    public Future<BannerResponseDeleteAt> trashBanner(Long bannerId) {
+        var ctx = metrics.startSpan(
                 "BannerCommandService.trashed",
                 Attributes.builder()
                         .put("banner.id", bannerId)
                         .build());
 
-        logger.info("Trashing banner: {}", bannerId);
+        log.info("Trashing banner: {}", bannerId);
 
         return repo.trashed(bannerId)
                 .compose(banner -> {
                     if (banner == null) {
                         return Future.failedFuture(new NotFoundException("Banner not found with id: " + bannerId));
                     }
-                    String cacheKey = CACHE_PREFIX + "id:" + bannerId;
+                    String cacheKey = CACHE_PREFIX + bannerId;
                     return redis.delete(cacheKey)
                             .onSuccess(deleted -> {
                                 if (deleted > 0) {
-                                    logger.debug("Banner {} cache invalidated on trash", bannerId);
+                                    log.debug("Banner {} cache invalidated on trash", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for trashed banner {}: {}",
+                            .onFailure(err -> log.warn("Failed to invalidate cache for trashed banner {}: {}",
                                     bannerId, err.getMessage()))
-                            .map(banner);
+                            .map(BannerResponseDeleteAt.from(banner));
                 })
-                .map(banner -> {
-                    metrics.completeSpanSuccess(tracingContext, "trashed", "Banner trashed successfully");
-                    return ApiResponse.success("Banner trashed successfully", BannerResponseDeleteAt.from(banner));
-                })
+                .onSuccess(res -> metrics.completeSpanSuccess(ctx, "trashed", "Banner trashed successfully"))
                 .recover(err -> {
-                    logger.error("Failed to trash banner: {}", bannerId, err);
-                    metrics.completeSpanError(tracingContext, "trashed", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<BannerResponseDeleteAt>error("Failed to trash banner: " + err.getMessage()));
+                    log.error("Failed to trash banner: {}", bannerId, err);
+                    metrics.completeSpanError(ctx, "trashed", err.getMessage());
+                    return Future.failedFuture(err);
                 });
     }
 
     @Override
-    public Future<ApiResponse<BannerResponseDeleteAt>> restoreBanner(Long bannerId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
+    public Future<BannerResponseDeleteAt> restoreBanner(Long bannerId) {
+        var ctx = metrics.startSpan(
                 "BannerCommandService.restore",
                 Attributes.builder()
                         .put("banner.id", bannerId)
                         .build());
 
-        logger.info("Restoring banner: {}", bannerId);
+        log.info("Restoring banner: {}", bannerId);
 
         return repo.restore(bannerId)
                 .compose(banner -> {
                     if (banner == null) {
                         return Future.failedFuture(new NotFoundException("Banner not found with id: " + bannerId));
                     }
-                    String cacheKey = CACHE_PREFIX + "id:" + bannerId;
+                    String cacheKey = CACHE_PREFIX + bannerId;
                     return redis.delete(cacheKey)
                             .onSuccess(deleted -> {
                                 if (deleted > 0) {
-                                    logger.debug("Banner {} cache invalidated on restore", bannerId);
+                                    log.debug("Banner {} cache invalidated on restore", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for restored banner {}: {}",
+                            .onFailure(err -> log.warn("Failed to invalidate cache for restored banner {}: {}",
                                     bannerId, err.getMessage()))
-                            .map(banner);
+                            .map(BannerResponseDeleteAt.from(banner));
                 })
-                .map(banner -> {
-                    metrics.completeSpanSuccess(tracingContext, "restore", "Banner restored successfully");
-                    return ApiResponse.success(
-                            "Banner restored successfully",
-                            BannerResponseDeleteAt.from(banner));
-                })
+                .onSuccess(res -> metrics.completeSpanSuccess(ctx, "restore", "Banner restored successfully"))
                 .recover(err -> {
-                    logger.error("Failed to restore banner: {}", bannerId, err);
-                    metrics.completeSpanError(tracingContext, "restore", err.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<BannerResponseDeleteAt>error("Failed to restore banner: " + err.getMessage()));
+                    log.error("Failed to restore banner: {}", bannerId, err);
+                    metrics.completeSpanError(ctx, "restore", err.getMessage());
+                    return Future.failedFuture(err);
                 });
     }
 
     @Override
-    public Future<ApiResponse<Void>> deletePermanent(Long bannerId) {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan(
+    public Future<Void> deletePermanent(Long bannerId) {
+        var ctx = metrics.startSpan(
                 "BannerCommandService.deletePermanent",
                 Attributes.builder()
                         .put("banner.id", bannerId)
                         .build());
 
-        logger.info("Permanently deleting banner: {}", bannerId);
+        log.info("Permanently deleting banner: {}", bannerId);
 
         return repo.deletePermanent(bannerId)
                 .compose(v -> {
-                    String cacheKey = CACHE_PREFIX + "id:" + bannerId;
+                    String cacheKey = CACHE_PREFIX + bannerId;
                     return redis.delete(cacheKey)
                             .onSuccess(deleted -> {
                                 if (deleted > 0) {
-                                    logger.debug("Banner {} cache invalidated on permanent delete", bannerId);
+                                    log.debug("Banner {} cache invalidated on permanent delete", bannerId);
                                 }
                             })
-                            .onFailure(err -> logger.warn("Failed to invalidate cache for deleted banner {}: {}",
+                            .onFailure(err -> log.warn("Failed to invalidate cache for deleted banner {}: {}",
                                     bannerId, err.getMessage()))
                             .map(v);
                 })
-                .map(v -> {
-                    logger.info("Banner deleted successfully: {}", bannerId);
-                    metrics.completeSpanSuccess(tracingContext, "deletePermanent", "Banner deleted permanently");
-                    return ApiResponse.<Void>success("success", null);
+                .onSuccess(v -> {
+                    log.info("Banner deleted successfully: {}", bannerId);
+                    metrics.completeSpanSuccess(ctx, "deletePermanent", "Banner deleted permanently");
                 })
                 .recover(throwable -> {
-                    logger.error("Failed to deletePermanent banner: {}", bannerId, throwable);
-                    metrics.completeSpanError(tracingContext, "deletePermanent", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to delete banner: " + throwable.getMessage()));
+                    log.error("Failed to deletePermanent banner: {}", bannerId, throwable);
+                    metrics.completeSpanError(ctx, "deletePermanent", throwable.getMessage());
+                    return Future.failedFuture(throwable);
                 });
     }
 
     @Override
-    public Future<ApiResponse<Void>> restoreAllBanners() {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("BannerService.restoreAll");
+    public Future<Void> restoreAllBanners() {
+        var ctx = metrics.startSpan("BannerCommandService.restoreAll");
 
-        logger.info("Attempting to restore all trashed banners");
+        log.info("Attempting to restore all trashed banners");
 
         return repo.restoreAll()
-                .compose(v -> {
-                    logger.info("All banners restored successfully");
-                    metrics.completeSpanSuccess(tracingContext, "restore_all", "All banners restored");
-                    return Future.succeededFuture(ApiResponse.<Void>success("All banners restored successfully"));
+                .onSuccess(v -> {
+                    log.info("All banners restored successfully");
+                    metrics.completeSpanSuccess(ctx, "restore_all", "All banners restored");
                 })
                 .recover(throwable -> {
-                    logger.error("Failed to restore all banners", throwable);
-                    metrics.completeSpanError(tracingContext, "restore_all", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to restore all banners: " + throwable.getMessage()));
+                    log.error("Failed to restore all banners", throwable);
+                    metrics.completeSpanError(ctx, "restore_all", throwable.getMessage());
+                    return Future.failedFuture(throwable);
                 });
     }
 
     @Override
-    public Future<ApiResponse<Void>> deleteAllPermanentBanners() {
-        TracingMetrics.TracingContext tracingContext = metrics.startSpan("BannerService.deleteAllPermanent");
+    public Future<Void> deleteAllPermanentBanners() {
+        var ctx = metrics.startSpan("BannerCommandService.deleteAllPermanent");
 
-        logger.info("Attempting to permanently delete all trashed banners");
+        log.info("Attempting to permanently delete all trashed banners");
 
         return repo.deleteAll()
-                .compose(v -> {
-                    logger.info("All trashed banners permanently deleted");
-                    metrics.completeSpanSuccess(tracingContext, "deleteAllPermanent",
-                            "All banners permanently deleted");
-                    return Future.succeededFuture(ApiResponse.<Void>success("All banners permanently deleted"));
+                .onSuccess(v -> {
+                    log.info("All trashed banners permanently deleted");
+                    metrics.completeSpanSuccess(ctx, "deleteAllPermanent", "All banners permanently deleted");
                 })
                 .recover(throwable -> {
-                    logger.error("Failed to permanently delete all banners", throwable);
-                    metrics.completeSpanError(tracingContext, "deleteAllPermanent", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error(
-                                    "Failed to permanently delete all banners: " + throwable.getMessage()));
+                    log.error("Failed to permanently delete all banners", throwable);
+                    metrics.completeSpanError(ctx, "deleteAllPermanent", throwable.getMessage());
+                    return Future.failedFuture(throwable);
                 });
     }
 }

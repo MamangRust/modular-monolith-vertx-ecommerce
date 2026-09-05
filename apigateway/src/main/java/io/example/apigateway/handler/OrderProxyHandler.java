@@ -68,12 +68,12 @@ public class OrderProxyHandler {
         }
 
         public void create(RoutingContext ctx) {
-                if (ctx.user() == null || ctx.user().principal() == null) {
+                int userId = GrpcGatewayUtils.getUserId(ctx);
+                if (userId == 0) {
                         GrpcGatewayUtils.handleError(ctx, new Exception("Unauthorized"));
                         return;
                 }
 
-                int userId = ctx.user().principal().getInteger("userId", 0);
                 JsonObject body = ctx.body().asJsonObject();
 
                 var builder = OrderCommand.CreateOrderRequest.newBuilder()
@@ -115,12 +115,12 @@ public class OrderProxyHandler {
         }
 
         public void update(RoutingContext ctx) {
-                if (ctx.user() == null || ctx.user().principal() == null) {
+                int userId = GrpcGatewayUtils.getUserId(ctx);
+                if (userId == 0) {
                         GrpcGatewayUtils.handleError(ctx, new Exception("Unauthorized"));
                         return;
                 }
 
-                int userId = ctx.user().principal().getInteger("userId", 0);
                 int orderId = GrpcGatewayUtils.getSafePathInt(ctx, "id");
                 JsonObject body = ctx.body().asJsonObject();
 

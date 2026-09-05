@@ -12,6 +12,15 @@ public interface ProductCommandRepository {
 
     Future<Product> updateProductCountStock(Integer productId, Integer countInStock);
 
+    /**
+     * Atomically decrement product stock. Returns the updated Product if
+     * sufficient stock was available, or fails with
+     * InsufficientStockException if count_in_stock < quantity.
+     */
+    Future<Product> decrementStock(Integer productId, Integer quantity);
+
+    Future<Product> incrementStock(Integer productId, Integer quantity);
+
     Future<Product> trash(Long productId);
 
     Future<Product> restore(Long productId);

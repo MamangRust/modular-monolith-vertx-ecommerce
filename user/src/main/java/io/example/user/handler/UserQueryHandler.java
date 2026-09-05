@@ -13,6 +13,7 @@ import pb.user.UserCommon.ApiResponsePaginationUserDeleteAt;
 import pb.user.UserCommon.ApiResponseUser;
 import pb.user.UserCommon.FindByIdUserRequest;
 import pb.user.UserQuery.FindAllUserRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class UserQueryHandler implements pb.user.VertxUserQueryServiceGrpcServer.UserQueryServiceApi {
@@ -89,5 +90,14 @@ public class UserQueryHandler implements pb.user.VertxUserQueryServiceGrpcServer
             .setPagination(toMeta(res.getTotalRecords(), domainReq.getPage(), domainReq.getPageSize()))
             .build())
         .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+  }
+
+  @Override
+  public pb.user.VertxUserQueryServiceGrpcServer.UserQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.user.VertxUserQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.user.VertxUserQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.user.VertxUserQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.user.VertxUserQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
   }
 }

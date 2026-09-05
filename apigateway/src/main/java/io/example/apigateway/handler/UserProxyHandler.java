@@ -73,6 +73,7 @@ public class UserProxyHandler {
         .setLastname(GrpcGatewayUtils.getJsonString(body, "lastname", ""))
         .setEmail(GrpcGatewayUtils.getJsonString(body, "email", ""))
         .setPassword(GrpcGatewayUtils.getJsonString(body, "password", ""))
+        .setConfirmPassword(GrpcGatewayUtils.getJsonString(body, "confirm_password", ""))
         .build();
 
     commandClient.update(req)

@@ -5,3 +5,5 @@ resources:
 - shipping_address-deployment.yaml
 - shipping_address-hpa.yaml
 - shipping_address-service.yaml
+- pdb.yaml
+- network-policy.yaml

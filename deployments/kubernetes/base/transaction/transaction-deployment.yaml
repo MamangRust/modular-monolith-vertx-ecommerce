@@ -44,7 +44,7 @@ spec:
               echo "[INIT] Kafka is ready!"
       containers:
         - name: transaction
-          image: transaction-ecommerce-service:1.0
+          image: ghcr.io/__GHCR_OWNER__/vertx-ecommerce/transaction:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -56,18 +56,38 @@ spec:
             - containerPort: 50059
           resources:
             requests:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "250m"
             limits:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "500m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8089
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /health/ready
               port: 8089
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8089
+            failureThreshold: 30
             periodSeconds: 10
-            failureThreshold: 5
           volumeMounts:
             - name: app-logs
               mountPath: /var/log/app

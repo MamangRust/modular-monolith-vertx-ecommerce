@@ -46,7 +46,7 @@ spec:
               cpu: "100m"
       containers:
         - name: email
-          image: email-service:1.0
+          image: ghcr.io/__GHCR_OWNER__/vertx-ecommerce/email:latest
           envFrom:
             - configMapRef:
                 name: app-config
@@ -56,16 +56,36 @@ spec:
             - containerPort: 8080
           resources:
             requests:
-              memory: "64Mi"
+              memory: "128Mi"
               cpu: "100m"
             limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /health/ready
               port: 8080
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            failureThreshold: 30
             periodSeconds: 10
-            failureThreshold: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           imagePullPolicy: IfNotPresent

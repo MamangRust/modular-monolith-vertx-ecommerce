@@ -117,7 +117,10 @@ public class IdentityService {
                                 io.opentelemetry.api.common.Attributes.builder().put("user.id", userId).build());
                 Span span = Span.fromContext(Objects.requireNonNull(ctx.getContext()));
 
-                return redisService.getJson("user:" + userId, AuthUser.class)
+                // Namespaced separately from the user service's own "user:<id>"
+                // cache key: AuthUser carries a "roles" field that the user
+                // service's User model does not, so a shared key breaks decode.
+                return redisService.getJson("auth:user:" + userId, AuthUser.class)
                                 .compose(cachedUser -> {
                                         if (cachedUser != null) {
                                                 span.setAttribute("auth.user_cache_hit", true);
@@ -138,7 +141,7 @@ public class IdentityService {
                                                                                                         "User not found"));
                                                                 }
                                                                 return redisService
-                                                                                .setJson("user:" + userId, user,
+                                                                                .setJson("auth:user:" + userId, user,
                                                                                                 Duration.ofMinutes(5))
                                                                                 .map(v -> user);
                                                         });

@@ -1,5 +1,7 @@
 # Distributed Modular Monolith — E-Commerce Platform (Java Vert.x)
 
+[![CI & DevSecOps Pipeline](https://github.com/MamangRust/modular-monolith-vertx-ecommerce/actions/workflows/ci.yml/badge.svg)](https://github.com/MamangRust/modular-monolith-vertx-ecommerce/actions/workflows/ci.yml)
+
 A production-grade, highly resilient, and fully observable **modular-monolith e-commerce backend** built in **Java 21** using the **Eclipse Vert.x** reactive toolkit (v4.5.24). Designed around domain-driven service boundaries following Clean Architecture and CQRS principles, it retains the operational and deployment simplicity of a single deployment unit while maintaining logical isolation typical of microservices.
 
 Each e-commerce, merchant, catalog, and identity business domain — Users, Roles, Catalog, Products, Banners, Sliders, Carts, Orders, Shipping, Merchants, Transactions, Reviews, and more — lives in its own self-contained Maven module. These modules communicate synchronously via high-performance **gRPC** protocols and asynchronously using **Apache Kafka** event propagation, exposing a unified reactive entry point through a **REST API Gateway** powered by Eclipse Vert.x Web Router and Vert.x gRPC clients.
@@ -993,7 +995,7 @@ flowchart TB
 
 ### ArgoCD App-of-Apps GitOps Architecture
 
-The platform follows GitOps best practices using ArgoCD for declarative continuous deployments. Replicating the App-of-Apps design pattern, a root Application (`ecommerce-root`) automatically manages and tracks the states of individual child Applications mapping to Kustomize bases.
+The platform follows GitOps best practices using ArgoCD for declarative continuous deployments. A root Application (`ecommerce-root`) bootstraps a single child Application (`ecommerce-production`, defined in `deployments/gitops/argocd/production/production.yaml`) that targets the production Kustomize overlay (`deployments/kubernetes/overlays/production`), which renders the full base with production image pins and `GHCR_OWNER` templating.
 
 Sync waves (`argocd.argoproj.io/sync-wave` annotations) are strictly defined to guarantee database migrations run and complete before domain applications start.
 
@@ -1009,61 +1011,24 @@ graph TD
     AppProj["ecommerce<br/>(ArgoCD AppProject)"]:::proj
 
     RootApp -->|Creates & Tracks| AppProj
-    RootApp -->|Deploys Application Manifests| AppIndex["Child Applications List<br/>(deployments/gitops/argocd/apps/)"]:::app
+    RootApp -->|Deploys Application Manifest| AppIdx["ecommerce-production<br/>(deployments/gitops/argocd/production/production.yaml)"]:::app
 
-    subgraph SyncWaves["Ordered Deployment Sequencing (Sync Waves 1 - 6)"]
+    subgraph SyncWaves["Sync Sequencing (via overlay patches)"]
         direction TB
 
-        subgraph Wave1["Wave 1: Namespace & Infrastructure"]
-            W1_CM["common"]:::wave
-            W1_PG["infra-postgres"]:::wave
-            W1_RD["infra-redis"]:::wave
-            W1_KF["infra-kafka"]:::wave
+        subgraph Wave1["PreSync Hook + Wave 1: Database Migration"]
+            W1_MIG["migrate Job<br/>(migration-hook.yaml)"]:::wave
         end
 
-        subgraph Wave2["Wave 2: Database Migration"]
-            W2_MIG["db-migration"]:::wave
+        subgraph Wave2["Wave 2: Application Deployments"]
+            W2_DEP["all service deployments<br/>(workload-wave.yaml)"]:::wave
         end
 
-        subgraph Wave3["Wave 3: Core Domain Services"]
-            W3_AUTH["service-auth"]:::wave
-            W3_USR["service-user"]:::wave
-            W3_ROL["service-role"]:::wave
-            W3_PROD["service-product"]:::wave
-            W3_CAT["service-category"]:::wave
-            W3_MER["service-merchant"]:::wave
-            W3_ORD["service-order"]:::wave
-            W3_CRT["service-cart"]:::wave
-            W3_EML["service-email"]:::wave
-            W3_OTH["other-domain-services"]:::wave
-        end
-
-        subgraph Wave4["Wave 4: Financial Movements"]
-            W4_TXN["service-transaction"]:::wave
-        end
-
-        subgraph Wave5["Wave 5: Reverse Proxy Gateway"]
-            W5_APIGW["apigateway"]:::wave
-            W5_NGINX["nginx"]:::wave
-        end
-
-        subgraph Wave6["Wave 6: Observability Suite"]
-            W6_OBS["service-observability"]:::wave
-        end
-
-        Wave1 -->|Triggers next wave| Wave2
-        Wave2 -->|Triggers next wave| Wave3
-        Wave3 -->|Triggers next wave| Wave4
-        Wave4 -->|Triggers next wave| Wave5
-        Wave5 -->|Triggers next wave| Wave6
+        Wave1 -->|then| Wave2
     end
 
-    AppIndex -->|Deploys| Wave1
-    AppIndex -->|Deploys| Wave2
-    AppIndex -->|Deploys| Wave3
-    AppIndex -->|Deploys| Wave4
-    AppIndex -->|Deploys| Wave5
-    AppIndex -->|Deploys| Wave6
+    AppIdx -->|Deploys| Wave1
+    AppIdx -->|Deploys| Wave2
 
     subgraph K8sBases["Target: Kustomize Base Resources"]
         B_COMMON["deployments/kubernetes/base/common"]:::base
@@ -1168,6 +1133,11 @@ Compile all submodules and generate the Java Protobuf gRPC stubs:
 mvn clean install
 ```
 
+Every push/PR also runs a **dead-dependency gate** (`mvn dependency:analyze`,
+see [CI/CD](#cicd-github-actions)): unused declarations and used-but-undeclared
+dependencies fail the build automatically, so dependency hygiene regressions
+(e.g. re-adding `vertx-kafka-client` to a non-Kafka module) are caught in CI.
+
 ### 4. Build Docker Images and Start Environment
 
 Use the included build script to compile the service Docker images, then boot the Docker Compose stack:
@@ -1217,10 +1187,31 @@ docker-compose down -v
 | :--- | :--- |
 | `mvn clean install` | Cleans target directories, runs tests, compiles all submodules, and generates package JARs. |
 | `mvn compile` | Compiles raw Java source files for all modules. |
+| `mvn clean test-compile dependency:analyze` | Dead-dependency audit (unused declared / used undeclared / non-test-scoped). Fails on any finding outside the whitelisted baseline in the root `pom.xml`. Run it after compiling (`clean test-compile`) for accurate results. |
 | `./build-docker-images.sh` | Orchestrates the build of Docker images for all Vert.x microservices. |
 | `docker-compose up -d` | Launches all containers (DBs, Redis cluster, Kafka, observability, profiling, and Java services) in background mode. |
 | `docker-compose down` | Stops compose containers, releasing standard networks. |
 | `docker-compose logs -f <service>` | Follows the realtime stdout logs of a specific service container. |
+
+---
+
+## CI/CD (GitHub Actions)
+
+The automated pipeline in `.github/workflows/ci.yml` runs on every push/PR to
+`main`/`master`, serialized per-branch to avoid races on manifest updates:
+
+| Job | Purpose |
+| :--- | :--- |
+| `build` | Compile + test (`mvn clean verify`), **dead-dependency gate** (`mvn dependency:analyze -DfailOnWarning=true`), SBOM (SPDX) generation, and test-report artifact upload. |
+| `security-scan` | Trivy filesystem scan (vulnerabilities & secrets) plus Trivy config scan (IaC misconfigurations), failing on HIGH/CRITICAL. |
+| `build-docker` | Matrix build (22 services) + Trivy image scan, then push to GHCR (`ghcr.io/<owner>/vertx-ecommerce/<svc>`) tagged per-commit and `latest` on push. |
+| `update-manifests` | After a push build, pins `newTag` in the production Kustomize overlay to the commit SHA so ArgoCD always rolls out the exact artifacts CI pushed. |
+
+**Dead-dependency gate** — `dependency:analyze` treats every unused-declared or
+used-undeclared dependency as a build failure. The audited baseline of benign
+findings (runtime/SPI usage, annotation processors, parent-inherited test deps)
+is whitelisted with rationale comments in the root `pom.xml`
+(`maven-dependency-plugin` configuration); **any new dead dependency fails CI**.
 
 ---
 

@@ -5,3 +5,5 @@ resources:
 - merchant_award-deployment.yaml
 - merchant_award-hpa.yaml
 - merchant_award-service.yaml
+- pdb.yaml
+- network-policy.yaml

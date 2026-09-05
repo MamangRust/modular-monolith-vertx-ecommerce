@@ -13,6 +13,7 @@ import pb.merchant_business.MerchantBusinessCommand.UpdateMerchantBusinessReques
 import pb.merchant_business.MerchantBusinessCommon.ApiResponseMerchantBusiness;
 import pb.merchant_business.MerchantBusinessCommon.ApiResponseMerchantBusinessDeleteAt;
 import pb.merchant_business.MerchantBusinessCommon.FindByIdMerchantBusinessRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantBusinessCommandHandler
@@ -109,5 +110,17 @@ public class MerchantBusinessCommandHandler
             .setMessage("All merchant business info permanently deleted")
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.MerchantBusinessCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.TrashedMerchantBusiness, this::trashedMerchantBusiness);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.RestoreMerchantBusiness, this::restoreMerchantBusiness);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.DeleteMerchantBusinessPermanent, this::deleteMerchantBusinessPermanent);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.RestoreAllMerchantBusiness, this::restoreAllMerchantBusiness);
+    GrpcServerBinder.bind(server, pb.merchant_business.VertxMerchantBusinessCommandServiceGrpcServer.DeleteAllMerchantBusinessPermanent, this::deleteAllMerchantBusinessPermanent);
+    return this;
   }
 }

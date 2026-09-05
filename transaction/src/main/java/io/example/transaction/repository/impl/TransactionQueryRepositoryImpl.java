@@ -89,6 +89,24 @@ public class TransactionQueryRepositoryImpl implements TransactionQueryRepositor
     }
 
     @Override
+    public Future<Transaction> getTransactionByIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return Future.succeededFuture(null);
+        }
+        return client
+                .preparedQuery("""
+                        SELECT transaction_id, order_id, merchant_id, payment_method, amount,
+                               payment_status, created_at, updated_at
+                        FROM transactions
+                        WHERE idempotency_key = $1 AND deleted_at IS NULL
+                        ORDER BY transaction_id DESC
+                        LIMIT 1
+                        """)
+                .execute(Tuple.of(idempotencyKey))
+                .map(rows -> rows.iterator().hasNext() ? Transaction.fromRow(rows.iterator().next()) : null);
+    }
+
+    @Override
     public Future<Transaction> getTransactionById(Long transactionId) {
         return client
                 .preparedQuery(
@@ -106,7 +124,10 @@ public class TransactionQueryRepositoryImpl implements TransactionQueryRepositor
                 .preparedQuery(
                         """
                                 SELECT transaction_id, order_id, merchant_id, payment_method, amount, payment_status, created_at, updated_at
-                                FROM transactions WHERE order_id = $1 AND deleted_at IS NULL;
+                                FROM transactions
+                                WHERE order_id = $1 AND deleted_at IS NULL
+                                ORDER BY transaction_id DESC
+                                LIMIT 1;
                                 """)
                 .execute(Tuple.of(orderId))
                 .map(rows -> rows.iterator().hasNext() ? Transaction.fromRow(rows.iterator().next()) : null);

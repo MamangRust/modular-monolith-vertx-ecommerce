@@ -5,3 +5,5 @@ resources:
 - category-deployment.yaml
 - category-hpa.yaml
 - category-service.yaml
+- pdb.yaml
+- network-policy.yaml

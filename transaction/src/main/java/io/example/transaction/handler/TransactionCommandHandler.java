@@ -14,6 +14,7 @@ import pb.transaction.TransactionCommon.ApiResponseTransactionDelete;
 import pb.transaction.TransactionCommon.ApiResponseTransactionDeleteAt;
 import pb.transaction.TransactionCommon.FindByIdTransactionRequest;
 import pb.transaction.VertxTransactionCommandServiceGrpcServer;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class TransactionCommandHandler
@@ -28,6 +29,8 @@ public class TransactionCommandHandler
                                 .paymentMethod(req.getPaymentMethod())
                                 .amount(req.getAmount())
                                 .paymentStatus(req.getPaymentStatus())
+                                .cardNumber(req.getCardNumber())
+                                .idempotencyKey(req.getIdempotencyKey())
                                 .build();
 
                 return service.createTransaction(reqDto)
@@ -120,4 +123,17 @@ public class TransactionCommandHandler
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.transaction.VertxTransactionCommandServiceGrpcServer.TransactionCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.TrashedTransaction, this::trashedTransaction);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.RestoreTransaction, this::restoreTransaction);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.DeleteTransactionPermanent, this::deleteTransactionPermanent);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.RestoreAllTransaction, this::restoreAllTransaction);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.DeleteTransactionByOrderPermanent, this::deleteTransactionByOrderPermanent);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionCommandServiceGrpcServer.DeleteAllTransactionPermanent, this::deleteAllTransactionPermanent);
+    return this;
+  }
 }

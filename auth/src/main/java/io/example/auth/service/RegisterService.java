@@ -55,7 +55,11 @@ public class RegisterService {
 
                     String verificationCode = UUID.randomUUID().toString().substring(0, 10);
                     request.setVerifiedCode(verificationCode);
-                    request.setVerified(false);
+                    // Dev convenience: when AUTO_VERIFY_USERS=true (docker-compose), skip email
+                    // verification so the full API surface is testable end-to-end (hurl suite).
+                    boolean autoVerify = Boolean.parseBoolean(
+                            System.getenv().getOrDefault("AUTO_VERIFY_USERS", "false"));
+                    request.setVerified(autoVerify);
 
                     CreateUserRequest createUserReq = CreateUserRequest.builder()
                             .firstName(request.getFirstName())
@@ -63,6 +67,7 @@ public class RegisterService {
                             .email(request.getEmail())
                             .password(request.getPassword())
                             .verificationCode(request.getVerifiedCode())
+                            .verified(request.isVerified())
                             .build();
 
                     return userRepository.createUser(createUserReq)

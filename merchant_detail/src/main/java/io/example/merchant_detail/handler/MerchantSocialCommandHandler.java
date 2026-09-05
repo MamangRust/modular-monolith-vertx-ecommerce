@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import pb.MerchantSocialLinkCommon.ApiResponseMerchantSocial;
 import pb.MerchantSocialLinkCommand.CreateMerchantSocialRequest;
 import pb.MerchantSocialLinkCommand.UpdateMerchantSocialRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantSocialCommandHandler
@@ -47,5 +48,12 @@ public class MerchantSocialCommandHandler
             .setData(ProtoConverter.toProtoSocial(data))
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.VertxMerchantSocialCommandServiceGrpcServer.MerchantSocialCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.VertxMerchantSocialCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.VertxMerchantSocialCommandServiceGrpcServer.Update, this::update);
+    return this;
   }
 }

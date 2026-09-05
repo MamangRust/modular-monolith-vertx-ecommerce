@@ -13,6 +13,7 @@ import pb.merchant_policy.MerchantPolicyCommand.UpdateMerchantPoliciesRequest;
 import pb.merchant_policy.MerchantPolicyCommon.ApiResponseMerchantPolicies;
 import pb.merchant_policy.MerchantPolicyCommon.ApiResponseMerchantPoliciesDeleteAt;
 import pb.merchant_policy.MerchantPolicyCommon.FindByIdMerchantPoliciesRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantPolicyCommandHandler
@@ -106,4 +107,16 @@ public class MerchantPolicyCommandHandler
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.MerchantPolicyCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.TrashedMerchantPolicies, this::trashedMerchantPolicies);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.RestoreMerchantPolicies, this::restoreMerchantPolicies);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.DeleteMerchantPoliciesPermanent, this::deleteMerchantPoliciesPermanent);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.RestoreAllMerchantPolicies, this::restoreAllMerchantPolicies);
+    GrpcServerBinder.bind(server, pb.merchant_policy.VertxMerchantPolicyCommandServiceGrpcServer.DeleteAllMerchantPoliciesPermanent, this::deleteAllMerchantPoliciesPermanent);
+    return this;
+  }
 }

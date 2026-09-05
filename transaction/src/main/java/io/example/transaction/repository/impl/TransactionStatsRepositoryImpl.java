@@ -1,8 +1,6 @@
 package io.example.transaction.repository.impl;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,10 +20,10 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
     private final Pool client;
 
     private Tuple getMonthlyTuple(int year, int month) {
-        LocalDate start = LocalDate.of(year, month, 1);
-        LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-        LocalDate startPrev = start.minusYears(1);
-        LocalDate endPrev = startPrev.withDayOfMonth(startPrev.lengthOfMonth());
+        LocalDateTime start = LocalDateTime.of(year, month, 1, 0, 0);
+        LocalDateTime end = start.withHour(23).withMinute(59).withSecond(59).withNano(999_999_999);
+        LocalDateTime startPrev = start.minusYears(1);
+        LocalDateTime endPrev = startPrev.withHour(23).withMinute(59).withSecond(59).withNano(999_999_999);
         return Tuple.of(start, end, startPrev, endPrev);
     }
 
@@ -180,7 +178,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
 
     @Override
     public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsSuccess(int year) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(year, 1, 1, 0, 0));
+        LocalDateTime refTs = LocalDateTime.of(year, 1, 1, 0, 0);
         return client
                 .preparedQuery(
                         """
@@ -206,7 +204,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
 
     @Override
     public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsFailed(int year) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(year, 1, 1, 0, 0));
+        LocalDateTime refTs = LocalDateTime.of(year, 1, 1, 0, 0);
         return client
                 .preparedQuery(
                         """
@@ -230,6 +228,14 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
                 .map(this::mapYearlyMethod);
     }
 
+    private Integer getIntegerFromNumber(Row row, String column) {
+        Object value = row.getValue(column);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return value == null ? 0 : Integer.valueOf(value.toString());
+    }
+
     private Long getLongFromDecimal(Row row, String column) {
         Object val = row.getValue(column);
         if (val == null)
@@ -245,7 +251,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
         List<TransactionMonthlyAmountSuccess> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionMonthlyAmountSuccess(
-                    r.getString("year"), r.getString("month"), r.getInteger("total_success"),
+                    r.getString("year"), r.getString("month"), getIntegerFromNumber(r, "total_success"),
                     r.getInteger("total_amount")));
         }
         return list;
@@ -255,7 +261,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
         List<TransactionYearlyAmountSuccess> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionYearlyAmountSuccess(
-                    r.getString("year"), r.getInteger("total_success"), r.getInteger("total_amount")));
+                    r.getString("year"), getIntegerFromNumber(r, "total_success"), r.getInteger("total_amount")));
         }
         return list;
     }
@@ -264,7 +270,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
         List<TransactionMonthlyAmountFailed> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionMonthlyAmountFailed(
-                    r.getString("year"), r.getString("month"), r.getInteger("total_failed"),
+                    r.getString("year"), r.getString("month"), getIntegerFromNumber(r, "total_failed"),
                     r.getInteger("total_amount")));
         }
         return list;
@@ -274,7 +280,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
         List<TransactionYearlyAmountFailed> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionYearlyAmountFailed(
-                    r.getString("year"), r.getInteger("total_failed"), r.getInteger("total_amount")));
+                    r.getString("year"), getIntegerFromNumber(r, "total_failed"), r.getInteger("total_amount")));
         }
         return list;
     }
@@ -283,7 +289,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
         List<TransactionMonthlyMethod> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionMonthlyMethod(
-                    r.getString("month"), r.getString("payment_method"), r.getInteger("total_transactions"),
+                    r.getString("month"), r.getString("payment_method"), getIntegerFromNumber(r, "total_transactions"),
                     getLongFromDecimal(r, "total_amount")));
         }
         return list;
@@ -293,7 +299,7 @@ public class TransactionStatsRepositoryImpl implements TransactionStatsRepositor
         List<TransactionYearlyMethod> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionYearlyMethod(
-                    r.getString("year"), r.getString("payment_method"), r.getInteger("total_transactions"),
+                    r.getString("year"), r.getString("payment_method"), getIntegerFromNumber(r, "total_transactions"),
                     getLongFromDecimal(r, "total_amount")));
         }
         return list;

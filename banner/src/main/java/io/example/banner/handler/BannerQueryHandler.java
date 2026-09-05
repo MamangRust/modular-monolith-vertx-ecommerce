@@ -2,6 +2,7 @@ package io.example.banner.handler;
 
 import io.example.common.domain.PagedResult;
 import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.common.grpc.GrpcServerBinder;
 import io.example.banner.domain.requests.FindAllBannerRequest;
 import io.example.banner.model.BannerResponse;
 import io.example.banner.model.BannerResponseDeleteAt;
@@ -82,6 +83,18 @@ public class BannerQueryHandler implements pb.banner.VertxBannerQueryServiceGrpc
                                                                 domainReq.getPageSize()))
                                                 .build())
                                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
+        }
+
+        @Override
+        public pb.banner.VertxBannerQueryServiceGrpcServer.BannerQueryServiceApi bindAll(
+                        io.vertx.grpc.server.GrpcServer server) {
+                GrpcServerBinder.bind(server, pb.banner.VertxBannerQueryServiceGrpcServer.FindAll, this::findAll);
+                GrpcServerBinder.bind(server, pb.banner.VertxBannerQueryServiceGrpcServer.FindById, this::findById);
+                GrpcServerBinder.bind(server, pb.banner.VertxBannerQueryServiceGrpcServer.FindByActive,
+                                this::findByActive);
+                GrpcServerBinder.bind(server, pb.banner.VertxBannerQueryServiceGrpcServer.FindByTrashed,
+                                this::findByTrashed);
+                return this;
         }
 
         @Override

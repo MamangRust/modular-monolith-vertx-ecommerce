@@ -13,6 +13,7 @@ import pb.review.ReviewCommon.ApiResponseReviewAll;
 import pb.review.ReviewCommon.ApiResponseReviewDelete;
 import pb.review.ReviewCommon.ApiResponseReviewDeleteAt;
 import pb.review.ReviewCommon.FindByIdReviewRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ReviewCommandHandler implements pb.review.VertxReviewCommandServiceGrpcServer.ReviewCommandServiceApi {
@@ -106,4 +107,16 @@ public class ReviewCommandHandler implements pb.review.VertxReviewCommandService
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.review.VertxReviewCommandServiceGrpcServer.ReviewCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.TrashedReview, this::trashedReview);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.RestoreReview, this::restoreReview);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.DeleteReviewPermanent, this::deleteReviewPermanent);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.RestoreAllReview, this::restoreAllReview);
+    GrpcServerBinder.bind(server, pb.review.VertxReviewCommandServiceGrpcServer.DeleteAllReviewPermanent, this::deleteAllReviewPermanent);
+    return this;
+  }
 }

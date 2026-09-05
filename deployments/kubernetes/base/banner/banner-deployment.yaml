@@ -28,7 +28,7 @@ spec:
             runAsUser: 0
       containers:
         - name: banner
-          image: banner-ecommerce-service:1.0
+          image: ghcr.io/__GHCR_OWNER__/vertx-ecommerce/banner:latest
           envFrom:
             - configMapRef:
                 name: app-config
@@ -39,16 +39,36 @@ spec:
             - containerPort: 50064
           resources:
             requests:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "250m"
             limits:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8094
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /health/ready
               port: 8094
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8094
+            failureThreshold: 30
             periodSeconds: 10
-            failureThreshold: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           imagePullPolicy: IfNotPresent

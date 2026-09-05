@@ -1,12 +1,8 @@
 package io.example.common.grpc;
 
-import io.example.common.exception.grpc.BadRequestException;
-import io.example.common.exception.grpc.ConflictException;
 import io.example.common.exception.grpc.GrpcException;
-import io.example.common.exception.grpc.InsufficientBalanceException;
-import io.example.common.exception.grpc.InternalServerErrorException;
-import io.example.common.exception.grpc.NotFoundException;
 import io.grpc.Status;
+import io.grpc.StatusException;
 import io.grpc.StatusRuntimeException;
 import io.vertx.core.Future;
 
@@ -18,7 +14,15 @@ public final class GrpcExceptionMapper {
     /**
      * Maps any Throwable to a failed Future with proper gRPC Status.
      * This is the single place where domain exceptions → gRPC status mapping
-     * happens.
+     * happens. The status code is derived from
+     * {@link GrpcException#getGrpcStatusCode()} — the single source of truth
+     * per exception class — so adding a new domain exception automatically
+     * gets the correct mapping without touching this class.
+     *
+     * <p>Note: protobuf {@code pb.Api.ErrorResponse} detail is intentionally
+     * not attached as gRPC status trailers yet — grpc-api 1.65.0 has no
+     * {@code Status.withDetails(...)}; the API Gateway already round-trips the
+     * correct HTTP status purely from the gRPC status code.
      */
     public static <T> Future<T> toFailedFuture(Throwable throwable) {
         return Future.failedFuture(toStatusRuntimeException(throwable));
@@ -30,7 +34,10 @@ public final class GrpcExceptionMapper {
         }
 
         if (throwable instanceof GrpcException de) {
-            return mapDomainException(de);
+            return Status.fromCode(de.getGrpcStatusCode())
+                    .withDescription(de.getMessage())
+                    .withCause(de)
+                    .asRuntimeException();
         }
 
         return Status.INTERNAL
@@ -39,37 +46,23 @@ public final class GrpcExceptionMapper {
                 .asRuntimeException();
     }
 
-    private static StatusRuntimeException mapDomainException(GrpcException ex) {
-        return switch (ex) {
-            case NotFoundException nfe ->
-                Status.NOT_FOUND
-                        .withDescription(nfe.getMessage())
-                        .asRuntimeException();
-
-            case BadRequestException bre ->
-                Status.INVALID_ARGUMENT
-                        .withDescription(bre.getMessage())
-                        .asRuntimeException();
-
-            case InsufficientBalanceException ibe ->
-                Status.FAILED_PRECONDITION
-                        .withDescription(ibe.getMessage())
-                        .asRuntimeException();
-
-            case ConflictException ce ->
-                Status.ALREADY_EXISTS
-                        .withDescription(ce.getMessage())
-                        .asRuntimeException();
-
-            case InternalServerErrorException ie ->
-                Status.INTERNAL
-                        .withDescription(ie.getMessage())
-                        .asRuntimeException();
-
-            default ->
-                Status.INTERNAL
-                        .withDescription(ex.getMessage())
-                        .asRuntimeException();
-        };
+    /**
+     * Maps any Throwable to a Vert.x {@link io.vertx.grpc.common.GrpcStatus}.
+     * Used by {@link GrpcServerBinder} so the service responds with the correct
+     * gRPC status code. The vertx-grpc 4.5.x generated {@code bind_*} default
+     * methods swallow the failure and always send INTERNAL, so the binder needs
+     * this explicit mapping.
+     */
+    public static io.vertx.grpc.common.GrpcStatus toGrpcStatus(Throwable throwable) {
+        if (throwable instanceof GrpcException de) {
+            return io.vertx.grpc.common.GrpcStatus.valueOf(de.getGrpcStatusCode().value());
+        }
+        if (throwable instanceof StatusRuntimeException sre) {
+            return io.vertx.grpc.common.GrpcStatus.valueOf(sre.getStatus().getCode().value());
+        }
+        if (throwable instanceof StatusException se) {
+            return io.vertx.grpc.common.GrpcStatus.valueOf(se.getStatus().getCode().value());
+        }
+        return io.vertx.grpc.common.GrpcStatus.INTERNAL;
     }
 }

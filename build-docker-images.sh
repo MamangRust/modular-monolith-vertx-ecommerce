@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Docker Build Script for Payment Gateway Services (Java / Vert.x)
+# Docker Build Script for E-Commerce Services (Java / Vert.x)
 # This script builds Docker images for all services
 
 set -e
 
-echo "🐳 Building Docker images for Payment Gateway services..."
+echo "🐳 Building Docker images for E-Commerce services..."
 
 # Colors for output
 RED='\033[0;31m'
@@ -51,7 +51,7 @@ build_service_image() {
 
     local service_dir="${service}"
     local dockerfile="${service_dir}/Dockerfile"
-    local image="monolith-payment-gateway-grpc-vertx/${service}:latest"
+    local image="monolith-ecommerce-grpc-vertx/${service}:latest"
 
     print_status "Building ${service} service image..."
 

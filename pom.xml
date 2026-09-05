@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>io.example</groupId>
@@ -44,6 +44,10 @@
     <protobuf.version>3.25.3</protobuf.version>
     <slf4j.version>2.0.13</slf4j.version>
     <lombok.version>1.18.32</lombok.version>
+    <junit.version>5.10.3</junit.version>
+    <mockito.version>5.12.0</mockito.version>
+    <assertj.version>3.26.3</assertj.version>
+    <testcontainers.version>1.21.4</testcontainers.version>
   </properties>
 
   <dependencyManagement>
@@ -85,11 +89,6 @@
       </dependency>
       <dependency>
         <groupId>io.example</groupId>
-        <artifactId>card</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.example</groupId>
         <artifactId>cart</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -116,11 +115,6 @@
       <dependency>
         <groupId>io.example</groupId>
         <artifactId>merchant_detail</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.example</groupId>
-        <artifactId>merchant_document</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -160,11 +154,6 @@
       </dependency>
       <dependency>
         <groupId>io.example</groupId>
-        <artifactId>saldo</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.example</groupId>
         <artifactId>shipping_address</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -175,27 +164,12 @@
       </dependency>
       <dependency>
         <groupId>io.example</groupId>
-        <artifactId>topup</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.example</groupId>
         <artifactId>transaction</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.example</groupId>
-        <artifactId>transfer</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.example</groupId>
         <artifactId>user</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>io.example</groupId>
-        <artifactId>withdraw</artifactId>
         <version>${project.version}</version>
       </dependency>
 
@@ -269,6 +243,50 @@
         <version>${lombok.version}</version>
         <scope>provided</scope>
       </dependency>
+
+      <!-- Test dependencies -->
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-core</artifactId>
+        <version>${mockito.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-junit-jupiter</artifactId>
+        <version>${mockito.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-junit5</artifactId>
+        <version>${vertx.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>kafka</artifactId>
+        <version>${testcontainers.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${testcontainers.version}</version>
+        <scope>test</scope>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -277,6 +295,33 @@
     <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
+    </dependency>
+
+    <!-- Global test dependencies (available to all modules) -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-junit5</artifactId>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -328,6 +373,89 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+
+      <!-- Dependency analysis gate (dead-dependency detection).
+           Run manually with: mvn dependency:analyze
+           CI runs it after `mvn clean verify` (see .github/workflows/ci.yml);
+           classes must already be compiled, so it is NOT bound to the lifecycle.
+           failOnWarning=true turns every unused-declared / used-undeclared /
+           non-test-scoped finding into a build failure. Entries below are the
+           audited BASELINE of benign findings and apply to ALL modules; any NEW
+           artifact not listed here fails the build and must either be declared
+           (when used) or removed (when dead). Prefer declaring direct deps over
+           extending these lists — the baseline should SHRINK, not grow. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.7.0</version>
+        <configuration>
+          <failOnWarning>true</failOnWarning>
+          <ignoredUnusedDeclaredDependencies>
+            <!-- Annotation processor: never referenced from bytecode. -->
+            <ignoredUnusedDeclaredDependency>org.projectlombok:lombok</ignoredUnusedDeclaredDependency>
+            <!-- Aggregator artifact; the API (junit-jupiter-api) is what is referenced. -->
+            <ignoredUnusedDeclaredDependency>org.junit.jupiter:junit-jupiter</ignoredUnusedDeclaredDependency>
+            <!-- Runtime SLF4J backend wired via logback.xml / ServiceLoader. -->
+            <ignoredUnusedDeclaredDependency>ch.qos.logback:logback-classic</ignoredUnusedDeclaredDependency>
+            <!-- JDBC driver loaded at runtime (Flyway). -->
+            <ignoredUnusedDeclaredDependency>org.postgresql:postgresql</ignoredUnusedDeclaredDependency>
+            <!-- Vert.x tracing, configured via OpenTelemetryOptions (SPI, no direct refs). -->
+            <ignoredUnusedDeclaredDependency>io.vertx:vertx-opentelemetry</ignoredUnusedDeclaredDependency>
+            <!-- Runtime SCRAM-SHA-256 auth for vertx-pg-client. vertx-pg-client declares
+                 it <optional>true</optional>, so it never arrives transitively and MUST
+                 stay declared explicitly even though no source references it. -->
+            <ignoredUnusedDeclaredDependency>com.ongres.scram:scram-client</ignoredUnusedDeclaredDependency>
+            <!-- Test framework/libs inherited globally from the parent POM; unused in
+                 modules that don't exercise them. -->
+            <ignoredUnusedDeclaredDependency>io.vertx:vertx-junit5</ignoredUnusedDeclaredDependency>
+            <ignoredUnusedDeclaredDependency>org.mockito:mockito-core</ignoredUnusedDeclaredDependency>
+            <ignoredUnusedDeclaredDependency>org.mockito:mockito-junit-jupiter</ignoredUnusedDeclaredDependency>
+            <ignoredUnusedDeclaredDependency>org.assertj:assertj-core</ignoredUnusedDeclaredDependency>
+            <!-- io.example:common (global scope, not just db-migration): db-migration
+                 declares it solely for the shared logback.xml runtime config; no
+                 io.example.common.* classes are referenced there. Other modules use
+                 common directly, so this entry only masks db-migration today. -->
+            <ignoredUnusedDeclaredDependency>io.example:common</ignoredUnusedDeclaredDependency>
+            <!-- apigateway: genuinely used by ProtoMapper (com.google.protobuf.util.
+                 JsonFormat), but the analyzer never detects com.google.protobuf.util.*
+                 usage, so it reports the declaration as unused. Must be declared
+                 explicitly to keep JsonFormat on the fat-jar classpath. -->
+            <ignoredUnusedDeclaredDependency>com.google.protobuf:protobuf-java-util</ignoredUnusedDeclaredDependency>
+          </ignoredUnusedDeclaredDependencies>
+          <ignoredNonTestScopedDependencies>
+            <!-- Tests assert on io.grpc.Status / StatusRuntimeException (error-mapping
+                 tests), but grpc-api only arrives transitively in compile scope; main
+                 code never references it directly in most services. Intentionally
+                 listed in BOTH this list and ignoredUsedUndeclaredDependencies
+                 (apigateway/common reference it from main code). -->
+            <ignoredNonTestScopedDependency>io.grpc:grpc-api</ignoredNonTestScopedDependency>
+          </ignoredNonTestScopedDependencies>
+          <ignoredUsedUndeclaredDependencies>
+            <!-- Referenced directly by source but provided transitively by the
+                 Vert.x / gRPC / OpenTelemetry / Jackson dependency graphs. -->
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-core</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-auth-common</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-auth-jwt</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-grpc-common</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-grpc-client</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-redis-client</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.vertx:vertx-sql-client</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.grpc:grpc-api</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>com.google.protobuf:protobuf-java</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>com.google.guava:guava</ignoredUsedUndeclaredDependency>
+            <!-- JSR-305 annotations only. -->
+            <ignoredUsedUndeclaredDependency>com.google.code.findbugs:jsr305</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>com.fasterxml.jackson.core:jackson-core</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>com.fasterxml.jackson.core:jackson-databind</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.opentelemetry:opentelemetry-api</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.opentelemetry:opentelemetry-context</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>io.opentelemetry:opentelemetry-sdk-common</ignoredUsedUndeclaredDependency>
+            <ignoredUsedUndeclaredDependency>org.slf4j:slf4j-api</ignoredUsedUndeclaredDependency>
+            <!-- Test: junit-jupiter-api arrives transitively via junit-jupiter. -->
+            <ignoredUsedUndeclaredDependency>org.junit.jupiter:junit-jupiter-api</ignoredUsedUndeclaredDependency>
+          </ignoredUsedUndeclaredDependencies>
+        </configuration>
       </plugin>
     </plugins>
   </build>

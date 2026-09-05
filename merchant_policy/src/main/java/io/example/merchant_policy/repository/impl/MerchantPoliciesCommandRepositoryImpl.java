@@ -31,11 +31,11 @@ public class MerchantPoliciesCommandRepositoryImpl implements MerchantPoliciesCo
     return client
         .preparedQuery("""
             UPDATE merchant_policies
-            SET policy_type = $2, title = $3, description = $4, updated_at = CURRENT_TIMESTAMP
+            SET policy_type = COALESCE(NULLIF($2, ''), policy_type), title = COALESCE(NULLIF($3, ''), title), description = COALESCE(NULLIF($4, ''), description), updated_at = CURRENT_TIMESTAMP
             WHERE merchant_policy_id = $1 AND deleted_at IS NULL
             RETURNING *;
             """)
-        .execute(Tuple.of((long) req.getMerchantPolicyId(), req.getPolicyType(), req.getTitle(), req.getDescription()))
+        .execute(Tuple.of((long) req.getMerchantPolicyId(), req.getPolicyType() != null ? req.getPolicyType() : "", req.getTitle() != null ? req.getTitle() : "", req.getDescription() != null ? req.getDescription() : ""))
         .map(rows -> rows.iterator().hasNext() ? MerchantPolicy.fromRow(rows.iterator().next()) : null);
   }
 

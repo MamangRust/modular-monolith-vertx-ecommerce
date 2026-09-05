@@ -5,3 +5,5 @@ resources:
 - apigateway-deployment.yaml
 - apigateway-hpa.yaml
 - apigateway-service.yaml
+- pdb.yaml
+- network-policy.yaml

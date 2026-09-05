@@ -1,8 +1,6 @@
 package io.example.transaction.repository.impl;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,10 +21,10 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     private final Pool client;
 
     private Tuple getMonthlyTuple(int year, int month) {
-        LocalDate start = LocalDate.of(year, month, 1);
-        LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-        LocalDate startPrev = start.minusYears(1);
-        LocalDate endPrev = startPrev.withDayOfMonth(startPrev.lengthOfMonth());
+        LocalDateTime start = LocalDateTime.of(year, month, 1, 0, 0);
+        LocalDateTime end = start.withHour(23).withMinute(59).withSecond(59).withNano(999_999_999);
+        LocalDateTime startPrev = start.minusYears(1);
+        LocalDateTime endPrev = startPrev.withHour(23).withMinute(59).withSecond(59).withNano(999_999_999);
         return Tuple.of(start, end, startPrev, endPrev);
     }
 
@@ -189,7 +187,7 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     @Override
     public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantSuccess(
             FindYearlyMerchantStatsRequest req) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
+        LocalDateTime refTs = LocalDateTime.of(req.getYear(), 1, 1, 0, 0);
         return client
                 .preparedQuery(
                         """
@@ -216,7 +214,7 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
     @Override
     public Future<List<TransactionYearlyMethod>> getYearlyTransactionMethodsByMerchantFailed(
             FindYearlyMerchantStatsRequest req) {
-        Timestamp refTs = Timestamp.valueOf(LocalDateTime.of(req.getYear(), 1, 1, 0, 0));
+        LocalDateTime refTs = LocalDateTime.of(req.getYear(), 1, 1, 0, 0);
         return client
                 .preparedQuery(
                         """
@@ -240,6 +238,14 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
                 .map(this::mapYearlyMethod);
     }
 
+    private Integer getIntegerFromNumber(Row row, String column) {
+        Object value = row.getValue(column);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return value == null ? 0 : Integer.valueOf(value.toString());
+    }
+
     private Long getLongFromDecimal(Row row, String column) {
         Object val = row.getValue(column);
         if (val == null)
@@ -255,8 +261,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
         List<TransactionMonthlyAmountSuccess> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionMonthlyAmountSuccess(
-                    r.getString("year"), r.getString("month"), r.getInteger("total_success"),
-                    r.getInteger("total_amount")));
+                    r.getString("year"), r.getString("month"), getIntegerFromNumber(r, "total_success"),
+                    getIntegerFromNumber(r, "total_amount")));
         }
         return list;
     }
@@ -265,7 +271,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
         List<TransactionYearlyAmountSuccess> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionYearlyAmountSuccess(
-                    r.getString("year"), r.getInteger("total_success"), r.getInteger("total_amount")));
+                    r.getString("year"), getIntegerFromNumber(r, "total_success"),
+                    getIntegerFromNumber(r, "total_amount")));
         }
         return list;
     }
@@ -274,8 +281,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
         List<TransactionMonthlyAmountFailed> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionMonthlyAmountFailed(
-                    r.getString("year"), r.getString("month"), r.getInteger("total_failed"),
-                    r.getInteger("total_amount")));
+                    r.getString("year"), r.getString("month"), getIntegerFromNumber(r, "total_failed"),
+                    getIntegerFromNumber(r, "total_amount")));
         }
         return list;
     }
@@ -284,7 +291,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
         List<TransactionYearlyAmountFailed> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionYearlyAmountFailed(
-                    r.getString("year"), r.getInteger("total_failed"), r.getInteger("total_amount")));
+                    r.getString("year"), getIntegerFromNumber(r, "total_failed"),
+                    getIntegerFromNumber(r, "total_amount")));
         }
         return list;
     }
@@ -293,8 +301,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
         List<TransactionMonthlyMethod> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionMonthlyMethod(
-                    r.getString("month"), r.getString("payment_method"), r.getInteger("total_transactions"),
-                    getLongFromDecimal(r, "total_amount")));
+                    r.getString("month"), r.getString("payment_method"),
+                    getIntegerFromNumber(r, "total_transactions"), getLongFromDecimal(r, "total_amount")));
         }
         return list;
     }
@@ -303,8 +311,8 @@ public class TransactionStatsByMerchantRepositoryImpl implements TransactionStat
         List<TransactionYearlyMethod> list = new ArrayList<>();
         for (Row r : rows) {
             list.add(new TransactionYearlyMethod(
-                    r.getString("year"), r.getString("payment_method"), r.getInteger("total_transactions"),
-                    getLongFromDecimal(r, "total_amount")));
+                    r.getString("year"), r.getString("payment_method"),
+                    getIntegerFromNumber(r, "total_transactions"), getLongFromDecimal(r, "total_amount")));
         }
         return list;
     }

@@ -3,6 +3,7 @@ package io.example.role.handler;
 import com.google.protobuf.Empty;
 
 import io.example.common.grpc.GrpcExceptionMapper;
+import io.example.common.grpc.GrpcServerBinder;
 import io.example.role.service.RoleCommandService;
 import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
@@ -98,5 +99,17 @@ public class RoleCommandHandler implements pb.VertxRoleCommandServiceGrpcServer.
             .setMessage("All roles permanently deleted")
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.VertxRoleCommandServiceGrpcServer.RoleCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.CreateRole, this::createRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.UpdateRole, this::updateRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.TrashedRole, this::trashedRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.RestoreRole, this::restoreRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.DeleteRolePermanent, this::deleteRolePermanent);
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.RestoreAllRole, this::restoreAllRole);
+    GrpcServerBinder.bind(server, pb.VertxRoleCommandServiceGrpcServer.DeleteAllRolePermanent, this::deleteAllRolePermanent);
+    return this;
   }
 }

@@ -7,6 +7,7 @@ import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
 import pb.category.CategoryCommon;
 import pb.category.CategoryQuery;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class CategoryQueryHandler implements pb.category.VertxCategoryQueryServiceGrpcServer.CategoryQueryServiceApi {
@@ -100,4 +101,13 @@ public class CategoryQueryHandler implements pb.category.VertxCategoryQueryServi
                                                 .build())
                                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
         }
+
+  @Override
+  public pb.category.VertxCategoryQueryServiceGrpcServer.CategoryQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
+  }
 }

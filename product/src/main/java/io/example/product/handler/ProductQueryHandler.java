@@ -12,6 +12,7 @@ import pb.product.ProductCommon.FindByIdProductRequest;
 import pb.product.ProductQuery.FindAllProductCategoryRequest;
 import pb.product.ProductQuery.FindAllProductMerchantRequest;
 import pb.product.VertxProductQueryServiceGrpcServer.ProductQueryServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ProductQueryHandler implements ProductQueryServiceApi {
@@ -143,4 +144,15 @@ public class ProductQueryHandler implements ProductQueryServiceApi {
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.product.VertxProductQueryServiceGrpcServer.ProductQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.product.VertxProductQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.product.VertxProductQueryServiceGrpcServer.FindByMerchant, this::findByMerchant);
+    GrpcServerBinder.bind(server, pb.product.VertxProductQueryServiceGrpcServer.FindByCategory, this::findByCategory);
+    GrpcServerBinder.bind(server, pb.product.VertxProductQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.product.VertxProductQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.product.VertxProductQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
+  }
 }

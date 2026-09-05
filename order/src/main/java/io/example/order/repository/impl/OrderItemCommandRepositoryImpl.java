@@ -3,8 +3,6 @@ package io.example.order.repository.impl;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 import com.google.protobuf.Empty;
 
@@ -75,56 +73,6 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<List<OrderItem>> trashOrderItem(Long orderId) {
-        FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
-                .setId(orderId.intValue())
-                .build();
-
-        return client.trashOrderItem(request)
-                .map(response -> {
-                    List<OrderItem> list = new ArrayList<>();
-                    if (response != null && response.hasData()) {
-                        var item = response.getData();
-                        list.add(OrderItem.builder()
-                                .orderItemId((long) item.getId())
-                                .orderId(item.getOrderId())
-                                .productId(item.getProductId())
-                                .quantity(item.getQuantity())
-                                .price(item.getPrice())
-                                .createdAt(parseTimestamp(item.getCreatedAt()))
-                                .updatedAt(parseTimestamp(item.getUpdatedAt()))
-                                .build());
-                    }
-                    return list;
-                });
-    }
-
-    @Override
-    public Future<List<OrderItem>> restoreOrderItem(Long orderId) {
-        FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
-                .setId(orderId.intValue())
-                .build();
-
-        return client.restoreOrderItem(request)
-                .map(response -> {
-                    List<OrderItem> list = new ArrayList<>();
-                    if (response != null && response.hasData()) {
-                        var item = response.getData();
-                        list.add(OrderItem.builder()
-                                .orderItemId((long) item.getId())
-                                .orderId(item.getOrderId())
-                                .productId(item.getProductId())
-                                .quantity(item.getQuantity())
-                                .price(item.getPrice())
-                                .createdAt(parseTimestamp(item.getCreatedAt()))
-                                .updatedAt(parseTimestamp(item.getUpdatedAt()))
-                                .build());
-                    }
-                    return list;
-                });
-    }
-
-    @Override
     public Future<Void> deleteOrderItemPermanently(Long orderId) {
         FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
                 .setId(orderId.intValue())
@@ -135,8 +83,12 @@ public class OrderItemCommandRepositoryImpl implements OrderItemCommandRepositor
     }
 
     @Override
-    public Future<Void> restoreAllOrderItems() {
-        return client.restoreAllOrdersItem(Empty.getDefaultInstance())
+    public Future<Void> deleteOrderItemByIdPermanently(Long orderItemId) {
+        FindByIdOrderItemRequest request = FindByIdOrderItemRequest.newBuilder()
+                .setId(orderItemId.intValue())
+                .build();
+
+        return client.deleteOrderItemPermanent(request)
                 .mapEmpty();
     }
 

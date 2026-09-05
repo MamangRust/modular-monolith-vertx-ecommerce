@@ -37,6 +37,5 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl slider -am -DskipT
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/slider/target/slider-*-fat.jar app.jar
-COPY chaos.yaml .
 EXPOSE 50062
 ENTRYPOINT ["java", "-jar", "app.jar"]

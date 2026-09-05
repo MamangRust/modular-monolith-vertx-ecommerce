@@ -17,6 +17,7 @@ import pb.transaction.TransactionStatsBymerchant.MonthMethodTransactionMerchantR
 import pb.transaction.TransactionStatsBymerchant.YearAmountTransactionMerchantRequest;
 import pb.transaction.TransactionStatsBymerchant.YearMethodTransactionMerchantRequest;
 import pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class TransactionStatsByMerchantHandler
@@ -134,4 +135,17 @@ public class TransactionStatsByMerchantHandler
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.TransactionStatsByMerchantServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetMonthlyAmountSuccessByMerchant, this::getMonthlyAmountSuccessByMerchant);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetYearlyAmountSuccessByMerchant, this::getYearlyAmountSuccessByMerchant);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetMonthlyAmountFailedByMerchant, this::getMonthlyAmountFailedByMerchant);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetYearlyAmountFailedByMerchant, this::getYearlyAmountFailedByMerchant);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetMonthlyTransactionMethodByMerchantSuccess, this::getMonthlyTransactionMethodByMerchantSuccess);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetYearlyTransactionMethodByMerchantSuccess, this::getYearlyTransactionMethodByMerchantSuccess);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetMonthlyTransactionMethodByMerchantFailed, this::getMonthlyTransactionMethodByMerchantFailed);
+    GrpcServerBinder.bind(server, pb.transaction.VertxTransactionStatsByMerchantServiceGrpcServer.GetYearlyTransactionMethodByMerchantFailed, this::getYearlyTransactionMethodByMerchantFailed);
+    return this;
+  }
 }

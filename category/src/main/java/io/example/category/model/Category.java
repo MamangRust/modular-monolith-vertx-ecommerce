@@ -88,8 +88,13 @@ public class Category {
     }
 
     private static Timestamp getTimestampFromRow(Row row, String column) {
-        LocalDateTime localDateTime = row.get(LocalDateTime.class, column);
-        return localDateTime != null ? Timestamp.valueOf(localDateTime) : null;
+        try {
+            if (row.getColumnIndex(column) < 0) return null;
+            LocalDateTime localDateTime = row.get(LocalDateTime.class, column);
+            return localDateTime != null ? Timestamp.valueOf(localDateTime) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override

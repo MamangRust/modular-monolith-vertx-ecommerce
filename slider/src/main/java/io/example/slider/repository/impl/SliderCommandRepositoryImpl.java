@@ -32,13 +32,13 @@ public class SliderCommandRepositoryImpl implements SliderCommandRepository {
                 return client
                                 .preparedQuery("""
                                                 UPDATE sliders
-                                                SET name = $1,
-                                                    image = $2,
+                                                SET name = COALESCE(NULLIF($1, ''), name),
+                                                    image = COALESCE(NULLIF($2, ''), image),
                                                     updated_at = CURRENT_TIMESTAMP
                                                 WHERE slider_id = $3 AND deleted_at IS NULL
                                                 RETURNING *
                                                 """)
-                                .execute(Tuple.of(req.getName(), req.getImage(), req.getSliderId()))
+                                .execute(Tuple.of(req.getName() != null ? req.getName() : "", req.getImage() != null ? req.getImage() : "", req.getSliderId()))
                                 .map(this::mapSingleOrNull);
         }
 

@@ -8,6 +8,7 @@ import io.example.category.domain.requests.FindYearCategoryRequest;
 import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
 import pb.category.CategoryCommon;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class CategoryStatsHandler implements pb.category.VertxCategoryStatsServiceGrpcServer.CategoryStatsServiceApi {
@@ -68,4 +69,13 @@ public class CategoryStatsHandler implements pb.category.VertxCategoryStatsServi
                         .build())
                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
     }
+
+  @Override
+  public pb.category.VertxCategoryStatsServiceGrpcServer.CategoryStatsServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryStatsServiceGrpcServer.FindMonthlyTotalPrices, this::findMonthlyTotalPrices);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryStatsServiceGrpcServer.FindYearlyTotalPrices, this::findYearlyTotalPrices);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryStatsServiceGrpcServer.FindMonthPrice, this::findMonthPrice);
+    GrpcServerBinder.bind(server, pb.category.VertxCategoryStatsServiceGrpcServer.FindYearPrice, this::findYearPrice);
+    return this;
+  }
 }

@@ -16,6 +16,7 @@ import pb.order.OrderQuery.FindYearTotalRevenueByMerchant;
 import pb.order.OrderQuery.FindYearOrder;
 import pb.order.OrderQuery.FindYearOrderByMerchant;
 import pb.order.VertxOrderStatsServiceGrpcServer.OrderStatsServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class OrderStatsHandler implements OrderStatsServiceApi {
@@ -126,4 +127,17 @@ public class OrderStatsHandler implements OrderStatsServiceApi {
                         .build())
                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
     }
+
+  @Override
+  public pb.order.VertxOrderStatsServiceGrpcServer.OrderStatsServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindMonthlyTotalRevenue, this::findMonthlyTotalRevenue);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindYearlyTotalRevenue, this::findYearlyTotalRevenue);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindMonthlyTotalRevenueByMerchant, this::findMonthlyTotalRevenueByMerchant);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindYearlyTotalRevenueByMerchant, this::findYearlyTotalRevenueByMerchant);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindMonthlyRevenue, this::findMonthlyRevenue);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindYearlyRevenue, this::findYearlyRevenue);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindMonthlyRevenueByMerchant, this::findMonthlyRevenueByMerchant);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderStatsServiceGrpcServer.FindYearlyRevenueByMerchant, this::findYearlyRevenueByMerchant);
+    return this;
+  }
 }

@@ -9,7 +9,7 @@ import io.vertx.core.Future;
 public interface CategoryQueryService {
     Future<PagedResult<CategoryResponse>> getAll(FindAllCategoriesRequest req);
 
-    Future<PagedResult<CategoryResponse>> getActive(FindAllCategoriesRequest req);
+    Future<PagedResult<CategoryResponseDeleteAt>> getActive(FindAllCategoriesRequest req);
 
     Future<PagedResult<CategoryResponseDeleteAt>> getTrashed(FindAllCategoriesRequest req);
 

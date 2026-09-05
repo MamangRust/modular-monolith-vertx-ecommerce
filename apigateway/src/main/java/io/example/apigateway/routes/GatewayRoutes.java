@@ -97,32 +97,35 @@ public final class GatewayRoutes {
     router.get("/roles").handler(RoleMiddleware.requireRole("ADMIN")).handler(role::findAll);
     router.get("/roles/:id").handler(role::findById);
     router.post("/roles").handler(role::create);
-    router.post("/roles/:id").handler(role::update);
+    // restore-all/delete-all must precede /roles/:id (same segment count)
+    router.post("/roles/restore-all").handler(role::restoreAllRoles);
+    router.post("/roles/delete-all").handler(role::deleteAllPermanentRoles);
     router.post("/roles/restore/:id").handler(role::restore);
     router.post("/roles/trashed/:id").handler(role::trashed);
     router.delete("/roles/deletePermanent/:id").handler(role::deletePermanent);
-    router.post("/roles/restore-all").handler(role::restoreAllRoles);
-    router.post("/roles/delete-all").handler(role::deleteAllPermanentRoles);
+    router.post("/roles/:id").handler(role::update);
 
     // =========================================================================
     // BANNER ROUTES
     // =========================================================================
     router.get("/banners").handler(banner::findAll);
     router.get("/banners/active").handler(banner::findActive);
-    router.get("/banners/:id").handler(banner::findById);
 
-    // Admin restricted banner routes
+    // Specific trash-list route must precede /banners/:id, otherwise
+    // "trashed" is parsed as an integer path parameter and returns 400.
     router.route("/banners/trashed*").handler(JwtMiddleware.jwt(jwtAuth)).handler(RoleMiddleware.requireRole("ADMIN"));
     router.get("/banners/trashed").handler(banner::findTrashed);
+    router.get("/banners/:id").handler(banner::findById);
 
     router.route("/banners/manage*").handler(JwtMiddleware.jwt(jwtAuth)).handler(RoleMiddleware.requireRole("ADMIN"));
     router.post("/banners/manage").handler(banner::create);
-    router.post("/banners/manage/:id").handler(banner::update);
+    // restore-all/delete-all must precede /banners/manage/:id (same segment count)
+    router.post("/banners/manage/restore-all").handler(banner::restoreAll);
+    router.delete("/banners/manage/delete-all").handler(banner::deleteAll);
     router.post("/banners/manage/restore/:id").handler(banner::restore);
     router.post("/banners/manage/trashed/:id").handler(banner::trash);
     router.delete("/banners/manage/deletePermanent/:id").handler(banner::deletePermanent);
-    router.post("/banners/manage/restore-all").handler(banner::restoreAll);
-    router.delete("/banners/manage/delete-all").handler(banner::deleteAll);
+    router.post("/banners/manage/:id").handler(banner::update);
 
     // =========================================================================
     // CART ROUTES (JWT guarded)
@@ -143,12 +146,13 @@ public final class GatewayRoutes {
     // Admin restricted category write routes
     router.route("/categories/manage*").handler(JwtMiddleware.jwt(jwtAuth)).handler(RoleMiddleware.requireRole("ADMIN"));
     router.post("/categories/manage").handler(category::create);
-    router.post("/categories/manage/:id").handler(category::update);
+    // restore-all/delete-all must precede /categories/manage/:id (same segment count)
+    router.post("/categories/manage/restore-all").handler(category::restoreAll);
+    router.delete("/categories/manage/delete-all").handler(category::deleteAll);
     router.post("/categories/manage/restore/:id").handler(category::restore);
     router.post("/categories/manage/trashed/:id").handler(category::trash);
     router.delete("/categories/manage/deletePermanent/:id").handler(category::deletePermanent);
-    router.post("/categories/manage/restore-all").handler(category::restoreAll);
-    router.delete("/categories/manage/delete-all").handler(category::deleteAll);
+    router.post("/categories/manage/:id").handler(category::update);
 
     // Admin restricted category stats routes
     router.route("/categories/stats*").handler(JwtMiddleware.jwt(jwtAuth)).handler(RoleMiddleware.requireRole("ADMIN"));
@@ -177,36 +181,38 @@ public final class GatewayRoutes {
 
     router.route("/merchants/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/merchants/manage").handler(merchant::create);
-    router.post("/merchants/manage/:id").handler(merchant::update);
+    // restore-all/delete-all must precede /merchants/manage/:id (same segment count)
+    router.post("/merchants/manage/restore-all").handler(merchant::restoreAll);
+    router.delete("/merchants/manage/delete-all").handler(merchant::deleteAllPermanent);
     router.post("/merchants/manage/status/:id").handler(merchant::updateStatus);
     router.post("/merchants/manage/restore/:id").handler(merchant::restore);
     router.post("/merchants/manage/trashed/:id").handler(merchant::trash);
     router.delete("/merchants/manage/deletePermanent/:id").handler(merchant::deletePermanent);
-    router.post("/merchants/manage/restore-all").handler(merchant::restoreAll);
-    router.delete("/merchants/manage/delete-all").handler(merchant::deleteAllPermanent);
+    router.post("/merchants/manage/:id").handler(merchant::update);
 
     // =========================================================================
     // PRODUCT ROUTES
     // =========================================================================
     router.get("/products").handler(product::findAll);
     router.get("/products/active").handler(product::findActive);
-    router.get("/products/:id").handler(product::findById);
+    // Specific paths must precede /products/:id so words like "trashed" are not parsed as IDs.
+    router.route("/products/trashed*").handler(JwtMiddleware.jwt(jwtAuth)).handler(RoleMiddleware.requireRole("ADMIN"));
+    router.get("/products/trashed").handler(product::findTrashed);
     router.get("/products/merchant/:merchantId").handler(product::findByMerchant);
     router.get("/products/category/:categoryName").handler(product::findByCategory);
+    router.get("/products/:id").handler(product::findById);
 
     // Guarded product routes
     router.route("/products/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/products/manage").handler(product::create);
-    router.post("/products/manage/:id").handler(product::update);
+    // restore-all/delete-all must precede /products/manage/:id (same segment count)
+    router.post("/products/manage/restore-all").handler(product::restoreAll);
+    router.delete("/products/manage/delete-all").handler(product::deleteAll);
     router.post("/products/manage/stock/:id").handler(product::updateStock);
     router.post("/products/manage/restore/:id").handler(product::restore);
     router.post("/products/manage/trashed/:id").handler(product::trash);
     router.delete("/products/manage/deletePermanent/:id").handler(product::deletePermanent);
-    router.post("/products/manage/restore-all").handler(product::restoreAll);
-    router.delete("/products/manage/delete-all").handler(product::deleteAll);
-
-    router.route("/products/trashed*").handler(JwtMiddleware.jwt(jwtAuth)).handler(RoleMiddleware.requireRole("ADMIN"));
-    router.get("/products/trashed").handler(product::findTrashed);
+    router.post("/products/manage/:id").handler(product::update);
 
     // =========================================================================
     // ORDER ROUTES (Guarded)
@@ -214,6 +220,20 @@ public final class GatewayRoutes {
     router.route("/orders*").handler(JwtMiddleware.jwt(jwtAuth));
     router.get("/orders").handler(order::findAll);
     router.get("/orders/active").handler(order::findActive);
+
+    // Order Stats must precede the generic /orders/:id route.
+    router.get("/orders/stats/monthly-total-revenue").handler(order::findMonthlyTotalRevenue);
+    router.get("/orders/stats/yearly-total-revenue").handler(order::findYearlyTotalRevenue);
+    router.get("/orders/stats/monthly-total-revenue/merchant/:id").handler(order::findMonthlyTotalRevenueByMerchant);
+    router.get("/orders/stats/yearly-total-revenue/merchant/:id").handler(order::findYearlyTotalRevenueByMerchant);
+    router.get("/orders/stats/monthly-revenue").handler(order::findMonthlyRevenue);
+    router.get("/orders/stats/yearly-revenue").handler(order::findYearlyRevenue);
+    router.get("/orders/stats/monthly-revenue/merchant/:id").handler(order::findMonthlyRevenueByMerchant);
+    router.get("/orders/stats/yearly-revenue/merchant/:id").handler(order::findYearlyRevenueByMerchant);
+
+    // Specific trash-list route must precede /orders/:id, otherwise
+    // "trashed" is parsed as an integer path parameter and returns 400.
+    router.get("/orders/trashed").handler(RoleMiddleware.requireRole("ADMIN")).handler(order::findTrashed);
     router.get("/orders/:id").handler(order::findById);
     router.post("/orders").handler(order::create);
     router.post("/orders/:id").handler(order::update);
@@ -223,19 +243,8 @@ public final class GatewayRoutes {
 
     // Admin guarded order routes
     router.route("/orders/manage*").handler(RoleMiddleware.requireRole("ADMIN"));
-    router.get("/orders/trashed").handler(RoleMiddleware.requireRole("ADMIN")).handler(order::findTrashed);
     router.post("/orders/manage/restore-all").handler(order::restoreAll);
     router.delete("/orders/manage/delete-all").handler(order::deleteAll);
-
-    // Order Stats
-    router.get("/orders/stats/monthly-total-revenue").handler(order::findMonthlyTotalRevenue);
-    router.get("/orders/stats/yearly-total-revenue").handler(order::findYearlyTotalRevenue);
-    router.get("/orders/stats/monthly-total-revenue/merchant/:id").handler(order::findMonthlyTotalRevenueByMerchant);
-    router.get("/orders/stats/yearly-total-revenue/merchant/:id").handler(order::findYearlyTotalRevenueByMerchant);
-    router.get("/orders/stats/monthly-revenue").handler(order::findMonthlyRevenue);
-    router.get("/orders/stats/yearly-revenue").handler(order::findYearlyRevenue);
-    router.get("/orders/stats/monthly-revenue/merchant/:id").handler(order::findMonthlyRevenueByMerchant);
-    router.get("/orders/stats/yearly-revenue/merchant/:id").handler(order::findYearlyRevenueByMerchant);
 
     // =========================================================================
     // ORDER ITEM ROUTES (Guarded)
@@ -258,12 +267,13 @@ public final class GatewayRoutes {
 
     router.route("/merchant-awards/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/merchant-awards/manage").handler(merchantAward::create);
-    router.post("/merchant-awards/manage/:id").handler(merchantAward::update);
+    // restore-all/delete-all must precede /merchant-awards/manage/:id (same segment count)
+    router.post("/merchant-awards/manage/restore-all").handler(merchantAward::restoreAll);
+    router.delete("/merchant-awards/manage/delete-all").handler(merchantAward::deleteAllPermanent);
     router.post("/merchant-awards/manage/restore/:id").handler(merchantAward::restore);
     router.post("/merchant-awards/manage/trashed/:id").handler(merchantAward::trash);
     router.delete("/merchant-awards/manage/deletePermanent/:id").handler(merchantAward::deletePermanent);
-    router.post("/merchant-awards/manage/restore-all").handler(merchantAward::restoreAll);
-    router.delete("/merchant-awards/manage/delete-all").handler(merchantAward::deleteAllPermanent);
+    router.post("/merchant-awards/manage/:id").handler(merchantAward::update);
 
     // =========================================================================
     // MERCHANT BUSINESS ROUTES
@@ -275,12 +285,13 @@ public final class GatewayRoutes {
 
     router.route("/merchant-businesses/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/merchant-businesses/manage").handler(merchantBusiness::create);
-    router.post("/merchant-businesses/manage/:id").handler(merchantBusiness::update);
+    // restore-all/delete-all must precede /merchant-businesses/manage/:id (same segment count)
+    router.post("/merchant-businesses/manage/restore-all").handler(merchantBusiness::restoreAll);
+    router.delete("/merchant-businesses/manage/delete-all").handler(merchantBusiness::deleteAllPermanent);
     router.post("/merchant-businesses/manage/restore/:id").handler(merchantBusiness::restore);
     router.post("/merchant-businesses/manage/trashed/:id").handler(merchantBusiness::trash);
     router.delete("/merchant-businesses/manage/deletePermanent/:id").handler(merchantBusiness::deletePermanent);
-    router.post("/merchant-businesses/manage/restore-all").handler(merchantBusiness::restoreAll);
-    router.delete("/merchant-businesses/manage/delete-all").handler(merchantBusiness::deleteAllPermanent);
+    router.post("/merchant-businesses/manage/:id").handler(merchantBusiness::update);
 
     // =========================================================================
     // MERCHANT DETAIL ROUTES
@@ -292,16 +303,18 @@ public final class GatewayRoutes {
 
     router.route("/merchant-details/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/merchant-details/manage").handler(merchantDetail::create);
-    router.post("/merchant-details/manage/:id").handler(merchantDetail::update);
+
+    // Social Media Links must precede the generic /:id route.
+    router.post("/merchant-details/manage/socials").handler(merchantDetail::createSocial);
+    router.post("/merchant-details/manage/socials/:id").handler(merchantDetail::updateSocial);
+
+    // restore-all/delete-all must precede /merchant-details/manage/:id (same segment count)
+    router.post("/merchant-details/manage/restore-all").handler(merchantDetail::restoreAll);
+    router.delete("/merchant-details/manage/delete-all").handler(merchantDetail::deleteAllPermanent);
     router.post("/merchant-details/manage/restore/:id").handler(merchantDetail::restore);
     router.post("/merchant-details/manage/trashed/:id").handler(merchantDetail::trash);
     router.delete("/merchant-details/manage/deletePermanent/:id").handler(merchantDetail::deletePermanent);
-    router.post("/merchant-details/manage/restore-all").handler(merchantDetail::restoreAll);
-    router.delete("/merchant-details/manage/delete-all").handler(merchantDetail::deleteAllPermanent);
-
-    // Social Media Links
-    router.post("/merchant-details/manage/socials").handler(merchantDetail::createSocial);
-    router.post("/merchant-details/manage/socials/:id").handler(merchantDetail::updateSocial);
+    router.post("/merchant-details/manage/:id").handler(merchantDetail::update);
 
     // =========================================================================
     // MERCHANT POLICY ROUTES
@@ -313,12 +326,13 @@ public final class GatewayRoutes {
 
     router.route("/merchant-policies/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/merchant-policies/manage").handler(merchantPolicy::create);
-    router.post("/merchant-policies/manage/:id").handler(merchantPolicy::update);
+    // restore-all/delete-all must precede /merchant-policies/manage/:id (same segment count)
+    router.post("/merchant-policies/manage/restore-all").handler(merchantPolicy::restoreAll);
+    router.delete("/merchant-policies/manage/delete-all").handler(merchantPolicy::deleteAllPermanent);
     router.post("/merchant-policies/manage/restore/:id").handler(merchantPolicy::restore);
     router.post("/merchant-policies/manage/trashed/:id").handler(merchantPolicy::trash);
     router.delete("/merchant-policies/manage/deletePermanent/:id").handler(merchantPolicy::deletePermanent);
-    router.post("/merchant-policies/manage/restore-all").handler(merchantPolicy::restoreAll);
-    router.delete("/merchant-policies/manage/delete-all").handler(merchantPolicy::deleteAllPermanent);
+    router.post("/merchant-policies/manage/:id").handler(merchantPolicy::update);
 
     // =========================================================================
     // SLIDER ROUTES
@@ -330,12 +344,13 @@ public final class GatewayRoutes {
 
     router.route("/sliders/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/sliders/manage").handler(slider::create);
-    router.post("/sliders/manage/:id").handler(slider::update);
+    // restore-all/delete-all must precede /sliders/manage/:id (same segment count)
+    router.post("/sliders/manage/restore-all").handler(slider::restoreAll);
+    router.delete("/sliders/manage/delete-all").handler(slider::deleteAll);
     router.post("/sliders/manage/restore/:id").handler(slider::restore);
     router.post("/sliders/manage/trashed/:id").handler(slider::trash);
     router.delete("/sliders/manage/deletePermanent/:id").handler(slider::deletePermanent);
-    router.post("/sliders/manage/restore-all").handler(slider::restoreAll);
-    router.delete("/sliders/manage/delete-all").handler(slider::deleteAll);
+    router.post("/sliders/manage/:id").handler(slider::update);
 
     // =========================================================================
     // SHIPPING ADDRESS ROUTES
@@ -348,13 +363,14 @@ public final class GatewayRoutes {
 
     router.route("/shipping-addresses/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/shipping-addresses/manage").handler(shippingAddress::create);
-    router.post("/shipping-addresses/manage/:id").handler(shippingAddress::update);
+    // restore-all/delete-all must precede /shipping-addresses/manage/:id (same segment count)
+    router.post("/shipping-addresses/manage/restore-all").handler(shippingAddress::restoreAll);
+    router.delete("/shipping-addresses/manage/delete-all").handler(shippingAddress::deleteAll);
+    router.delete("/shipping-addresses/manage/deleteByOrderPermanent/:orderId").handler(shippingAddress::deleteByOrderPermanent);
     router.post("/shipping-addresses/manage/restore/:id").handler(shippingAddress::restore);
     router.post("/shipping-addresses/manage/trashed/:id").handler(shippingAddress::trash);
     router.delete("/shipping-addresses/manage/deletePermanent/:id").handler(shippingAddress::deletePermanent);
-    router.delete("/shipping-addresses/manage/deleteByOrderPermanent/:orderId").handler(shippingAddress::deleteByOrderPermanent);
-    router.post("/shipping-addresses/manage/restore-all").handler(shippingAddress::restoreAll);
-    router.delete("/shipping-addresses/manage/delete-all").handler(shippingAddress::deleteAll);
+    router.post("/shipping-addresses/manage/:id").handler(shippingAddress::update);
 
     // =========================================================================
     // REVIEW ROUTES
@@ -368,12 +384,13 @@ public final class GatewayRoutes {
 
     router.route("/reviews/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/reviews/manage").handler(review::create);
-    router.post("/reviews/manage/:id").handler(review::update);
+    // restore-all/delete-all must precede /reviews/manage/:id (same segment count)
+    router.post("/reviews/manage/restore-all").handler(review::restoreAll);
+    router.delete("/reviews/manage/delete-all").handler(review::deleteAll);
     router.post("/reviews/manage/restore/:id").handler(review::restore);
     router.post("/reviews/manage/trashed/:id").handler(review::trash);
     router.delete("/reviews/manage/deletePermanent/:id").handler(review::deletePermanent);
-    router.post("/reviews/manage/restore-all").handler(review::restoreAll);
-    router.delete("/reviews/manage/delete-all").handler(review::deleteAll);
+    router.post("/reviews/manage/:id").handler(review::update);
 
     // =========================================================================
     // REVIEW DETAIL ROUTES
@@ -385,12 +402,13 @@ public final class GatewayRoutes {
 
     router.route("/review-details/manage*").handler(JwtMiddleware.jwt(jwtAuth));
     router.post("/review-details/manage").handler(reviewDetail::create);
-    router.post("/review-details/manage/:id").handler(reviewDetail::update);
+    // restore-all/delete-all must precede /review-details/manage/:id (same segment count)
+    router.post("/review-details/manage/restore-all").handler(reviewDetail::restoreAll);
+    router.delete("/review-details/manage/delete-all").handler(reviewDetail::deleteAll);
     router.post("/review-details/manage/restore/:id").handler(reviewDetail::restore);
     router.post("/review-details/manage/trashed/:id").handler(reviewDetail::trash);
     router.delete("/review-details/manage/deletePermanent/:id").handler(reviewDetail::deletePermanent);
-    router.post("/review-details/manage/restore-all").handler(reviewDetail::restoreAll);
-    router.delete("/review-details/manage/delete-all").handler(reviewDetail::deleteAll);
+    router.post("/review-details/manage/:id").handler(reviewDetail::update);
 
     // =========================================================================
     // TRANSACTION ROUTES
@@ -398,21 +416,8 @@ public final class GatewayRoutes {
     router.get("/transactions").handler(transaction::findAll);
     router.get("/transactions/active").handler(transaction::findActive);
     router.get("/transactions/trashed").handler(transaction::findTrashed);
-    router.get("/transactions/:id").handler(transaction::findById);
-    router.get("/transactions/order/:orderId").handler(transaction::findByOrderId);
-    router.get("/transactions/merchant/:merchantId").handler(transaction::findByMerchant);
 
-    router.route("/transactions/manage*").handler(JwtMiddleware.jwt(jwtAuth));
-    router.post("/transactions/manage").handler(transaction::create);
-    router.post("/transactions/manage/:id").handler(transaction::update);
-    router.post("/transactions/manage/restore/:id").handler(transaction::restore);
-    router.post("/transactions/manage/trashed/:id").handler(transaction::trash);
-    router.delete("/transactions/manage/deletePermanent/:id").handler(transaction::deletePermanent);
-    router.delete("/transactions/manage/deleteByOrderPermanent/:orderId").handler(transaction::deleteByOrderPermanent);
-    router.post("/transactions/manage/restore-all").handler(transaction::restoreAll);
-    router.delete("/transactions/manage/delete-all").handler(transaction::deleteAll);
-
-    // Stats
+    // Stats must precede generic /transactions/:id and /transactions/order/:orderId routes.
     router.route("/transactions/stats*").handler(JwtMiddleware.jwt(jwtAuth));
     router.get("/transactions/stats/monthly-success").handler(transaction::getMonthlyAmountSuccess);
     router.get("/transactions/stats/yearly-success").handler(transaction::getYearlyAmountSuccess);
@@ -432,6 +437,21 @@ public final class GatewayRoutes {
     router.get("/transactions/stats/merchant/:merchantId/yearly-method-success").handler(transaction::getYearlyTransactionMethodSuccessByMerchant);
     router.get("/transactions/stats/merchant/:merchantId/monthly-method-failed").handler(transaction::getMonthlyTransactionMethodFailedByMerchant);
     router.get("/transactions/stats/merchant/:merchantId/yearly-method-failed").handler(transaction::getYearlyTransactionMethodFailedByMerchant);
+
+    router.get("/transactions/:id").handler(transaction::findById);
+    router.get("/transactions/order/:orderId").handler(transaction::findByOrderId);
+    router.get("/transactions/merchant/:merchantId").handler(transaction::findByMerchant);
+
+    router.route("/transactions/manage*").handler(JwtMiddleware.jwt(jwtAuth));
+    router.post("/transactions/manage").handler(transaction::create);
+    // restore-all/delete-all must precede /transactions/manage/:id (same segment count)
+    router.post("/transactions/manage/restore-all").handler(transaction::restoreAll);
+    router.delete("/transactions/manage/delete-all").handler(transaction::deleteAll);
+    router.delete("/transactions/manage/deleteByOrderPermanent/:orderId").handler(transaction::deleteByOrderPermanent);
+    router.post("/transactions/manage/restore/:id").handler(transaction::restore);
+    router.post("/transactions/manage/trashed/:id").handler(transaction::trash);
+    router.delete("/transactions/manage/deletePermanent/:id").handler(transaction::deletePermanent);
+    router.post("/transactions/manage/:id").handler(transaction::update);
 
     // =========================================================================
     // CHAOS CONTROL PLANE ROUTES

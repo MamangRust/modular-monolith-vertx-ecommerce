@@ -4,6 +4,7 @@ import io.example.auth.service.IdentityService;
 import io.example.auth.service.LoginService;
 import io.example.auth.service.PasswordResetService;
 import io.example.auth.service.RegisterService;
+import io.example.common.grpc.GrpcExceptionMapper;
 import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
 import pb.Auth.ApiResponseForgotPassword;
@@ -21,6 +22,7 @@ import pb.Auth.RegisterRequest;
 import pb.Auth.ResetPasswordRequest;
 import pb.Auth.TokenResponse;
 import pb.Auth.VerifyCodeRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi {
@@ -35,7 +37,8 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                 .map(v -> ApiResponseVerifyCode.newBuilder()
                                                 .setStatus("success")
                                                 .setMessage("Verification code verified")
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
 
         @Override
@@ -44,7 +47,8 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                 .map(v -> ApiResponseForgotPassword.newBuilder()
                                                 .setStatus("success")
                                                 .setMessage("Forgot password link sent to " + request.getEmail())
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
 
         @Override
@@ -60,7 +64,8 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                 .map(v -> ApiResponseResetPassword.newBuilder()
                                                 .setStatus("success")
                                                 .setMessage("Password has been reset successfully")
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
 
         @Override
@@ -78,7 +83,8 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                                 .setStatus("success")
                                                 .setMessage("User registered successfully")
                                                 .setData(ProtoConverter.toUserResponse(userModel))
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
 
         @Override
@@ -97,7 +103,8 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                                                 .setAccessToken(resp.getAccessToken())
                                                                 .setRefreshToken(resp.getRefreshToken())
                                                                 .build())
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
 
         @Override
@@ -110,7 +117,8 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                                                 .setAccessToken(resp.getAccessToken())
                                                                 .setRefreshToken(resp.getRefreshToken())
                                                                 .build())
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
 
         @Override
@@ -120,6 +128,19 @@ public class AuthHandler implements pb.VertxAuthServiceGrpcServer.AuthServiceApi
                                                 .setStatus("success")
                                                 .setMessage("Current user fetched successfully")
                                                 .setData(ProtoConverter.toUserResponse(userModel))
-                                                .build());
+                                                .build())
+                                .recover(GrpcExceptionMapper::toFailedFuture); 
         }
+
+  @Override
+  public pb.VertxAuthServiceGrpcServer.AuthServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.VerifyCode, this::verifyCode);
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.ForgotPassword, this::forgotPassword);
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.ResetPassword, this::resetPassword);
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.RegisterUser, this::registerUser);
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.LoginUser, this::loginUser);
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.RefreshToken, this::refreshToken);
+    GrpcServerBinder.bind(server, pb.VertxAuthServiceGrpcServer.GetMe, this::getMe);
+    return this;
+  }
 }

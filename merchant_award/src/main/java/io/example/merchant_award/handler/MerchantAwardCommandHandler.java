@@ -13,6 +13,7 @@ import pb.merchant.MerchantCommon.ApiResponseMerchantDelete;
 import pb.merchant_award.MerchantAwardCommon.ApiResponseMerchantAward;
 import pb.merchant_award.MerchantAwardCommon.ApiResponseMerchantAwardDeleteAt;
 import pb.merchant_award.MerchantAwardCommon.FindByIdMerchantAwardRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantAwardCommandHandler
@@ -113,5 +114,17 @@ public class MerchantAwardCommandHandler
             .setMessage("All awards permanently deleted")
             .build())
         .recover(GrpcExceptionMapper::toFailedFuture);
+  }
+
+  @Override
+  public pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.MerchantAwardCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.TrashedMerchantAward, this::trashedMerchantAward);
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.RestoreMerchantAward, this::restoreMerchantAward);
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.DeleteMerchantAwardPermanent, this::deleteMerchantAwardPermanent);
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.RestoreAllMerchantAward, this::restoreAllMerchantAward);
+    GrpcServerBinder.bind(server, pb.merchant_award.VertxMerchantAwardCommandServiceGrpcServer.DeleteAllMerchantAwardPermanent, this::deleteAllMerchantAwardPermanent);
+    return this;
   }
 }

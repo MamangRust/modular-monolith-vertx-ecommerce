@@ -15,6 +15,7 @@ import pb.order_item.OrderItemCommon.ApiResponseOrderItem;
 import pb.order_item.OrderItemCommon.ApiResponseOrderItemDelete;
 import pb.order_item.OrderItemCommon.ApiResponseOrderItemAll;
 import pb.order_item.VertxOrderItemCommandServiceGrpcServer.OrderItemCommandServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class OrderItemCommandHandler implements OrderItemCommandServiceApi {
@@ -135,4 +136,18 @@ public class OrderItemCommandHandler implements OrderItemCommandServiceApi {
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.order_item.VertxOrderItemCommandServiceGrpcServer.OrderItemCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.CreateOrderItem, this::createOrderItem);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.UpdateOrderItem, this::updateOrderItem);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.TrashOrderItem, this::trashOrderItem);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.RestoreOrderItem, this::restoreOrderItem);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.DeleteOrderItemPermanent, this::deleteOrderItemPermanent);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.RestoreAllOrdersItem, this::restoreAllOrdersItem);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.DeleteAllPermanentOrdersItem, this::deleteAllPermanentOrdersItem);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.DeleteOrderItemByOrderPermanent, this::deleteOrderItemByOrderPermanent);
+    GrpcServerBinder.bind(server, pb.order_item.VertxOrderItemCommandServiceGrpcServer.CalculateTotalPrice, this::calculateTotalPrice);
+    return this;
+  }
 }

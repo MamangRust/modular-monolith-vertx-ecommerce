@@ -1,5 +1,6 @@
 package io.example.common.config;
 
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
@@ -24,8 +25,15 @@ import io.vertx.core.json.JsonObject;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TelemetryConfig {
+
+  // Only one OpenTelemetry SDK may be registered per JVM. Embedded components
+  // (e.g. Kafka consumer services) reuse the instance registered by the owning
+  // verticle instead of calling buildAndRegisterGlobal() a second time.
+  private static final AtomicBoolean initialized = new AtomicBoolean(false);
+  private static final Object INIT_LOCK = new Object();
 
   private String otlpEndpoint;
   private String serviceName;
@@ -47,6 +55,23 @@ public class TelemetryConfig {
   }
 
   public OpenTelemetry initialize() {
+    // Idempotency guard. NOTE: must NOT call GlobalOpenTelemetry.get() before
+    // buildAndRegisterGlobal() below — it lazily registers a noop global and
+    // would make buildAndRegisterGlobal() throw "already been called".
+    // Double-checked locking: a second caller blocks until the first finishes
+    // registering, and the flag is only set after a successful registration.
+    if (initialized.get()) {
+      openTelemetry = GlobalOpenTelemetry.get();
+      tracer = openTelemetry.getTracer(serviceName, serviceVersion);
+      return openTelemetry;
+    }
+    synchronized (INIT_LOCK) {
+      if (initialized.get()) {
+        openTelemetry = GlobalOpenTelemetry.get();
+        tracer = openTelemetry.getTracer(serviceName, serviceVersion);
+        return openTelemetry;
+      }
+
     Resource resource = Resource.getDefault()
         .merge(Resource.create(Objects.requireNonNull(Attributes.of(
             Objects.requireNonNull(AttributeKey.stringKey("service.name")), Objects.requireNonNull(serviceName),
@@ -92,6 +117,7 @@ public class TelemetryConfig {
         .setLoggerProvider(Objects.requireNonNull(loggerProvider))
         .setPropagators(Objects.requireNonNull(ContextPropagators.create(Objects.requireNonNull(W3CTraceContextPropagator.getInstance()))))
         .buildAndRegisterGlobal();
+    initialized.set(true);
 
     tracer = openTelemetry.getTracer(Objects.requireNonNull(serviceName), Objects.requireNonNull(serviceVersion));
 
@@ -102,6 +128,7 @@ public class TelemetryConfig {
     }
 
     return openTelemetry;
+    }
   }
 
   private void registerJvmMetrics() {

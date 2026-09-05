@@ -46,7 +46,7 @@ spec:
               cpu: "100m"
       containers:
         - name: apigateway
-          image: apigateway-ecommerce-service:1.0
+          image: ghcr.io/__GHCR_OWNER__/vertx-ecommerce/apigateway:latest
           envFrom:
             - configMapRef:
                 name: app-config
@@ -57,9 +57,36 @@ spec:
             - containerPort: 8100
           resources:
             requests:
-              memory: "64Mi"
-              cpu: "100m"
-            limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 5000
+            failureThreshold: 30
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           imagePullPolicy: IfNotPresent

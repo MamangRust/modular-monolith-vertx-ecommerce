@@ -34,13 +34,6 @@ public class CartCommandRepositoryImpl implements CartCommandRepository {
                 .execute(Tuple.of(
                         req.getUserId(),
                         req.getProductId(),
-                        req.getQuantity() != null ? req.getProductId() : null, // wait! The quantity column should get
-                                                                               // quantity value!
-                        // Oh! Wait! Let's check:
-                        // $3 is name, $4 is price, $5 is image, $6 is quantity, $7 is weight.
-                        // In the old code: Tuple.of(req.getUserId(), req.getProductId(), req.getName(),
-                        // req.getPrice(), req.getImageProduct(), req.getQuantity(), req.getWeight())
-                        // Yes! The third parameter should be req.getName()!
                         req.getName(),
                         req.getPrice(),
                         req.getImageProduct(),

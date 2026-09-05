@@ -92,7 +92,9 @@ public class MerchantPolicyVerticle extends AbstractVerticle {
         .setPort(dbCfg.getInteger("port", 5432))
         .setDatabase(dbCfg.getString("database", "vertxdb"))
         .setUser(dbCfg.getString("user", "vertx"))
-        .setPassword(dbCfg.getString("password", "vertx"));
+        .setPassword(dbCfg.getString("password", "vertx"))
+        // PgBouncer uses transaction pooling; do not reuse session-bound prepared statements.
+        .setCachePreparedStatements(false);
 
     PoolOptions poolOptions = new PoolOptions()
         .setMaxSize(dbCfg.getInteger("pool_size", 5));

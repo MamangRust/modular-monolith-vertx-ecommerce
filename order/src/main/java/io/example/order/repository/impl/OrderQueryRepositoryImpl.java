@@ -151,7 +151,8 @@ public class OrderQueryRepositoryImpl implements OrderQueryRepository {
                     merchant_id,
                     total_price,
                     created_at,
-                    updated_at
+                    updated_at,
+                    deleted_at
                 FROM orders
                 WHERE
                     order_id = $1

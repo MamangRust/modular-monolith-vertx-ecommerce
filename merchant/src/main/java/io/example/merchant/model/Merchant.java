@@ -21,7 +21,10 @@ public class Merchant {
   private Integer merchantId;
   private String merchantNo;
   private String name;
-  private String apiKey;
+  private String description;
+  private String address;
+  private String contactEmail;
+  private String contactPhone;
   private Integer userId;
   private String status;
   private Timestamp createdAt;
@@ -33,7 +36,10 @@ public class Merchant {
         .put("merchantId", merchantId)
         .put("merchantNo", merchantNo)
         .put("name", name)
-        .put("apiKey", apiKey)
+        .put("description", description)
+        .put("address", address)
+        .put("contactEmail", contactEmail)
+        .put("contactPhone", contactPhone)
         .put("userId", userId)
         .put("status", status);
 
@@ -59,7 +65,10 @@ public class Merchant {
     merchant.setMerchantId(json.getInteger("merchantId"));
     merchant.setMerchantNo(json.getString("merchantNo"));
     merchant.setName(json.getString("name"));
-    merchant.setApiKey(json.getString("apiKey"));
+    merchant.setDescription(json.getString("description"));
+    merchant.setAddress(json.getString("address"));
+    merchant.setContactEmail(json.getString("contactEmail"));
+    merchant.setContactPhone(json.getString("contactPhone"));
     merchant.setUserId(json.getInteger("userId"));
     merchant.setStatus(json.getString("status"));
 
@@ -92,11 +101,6 @@ public class Merchant {
     }
 
     String name = row.getString("name");
-    String apiKey = row.getString("api_key");
-    if (apiKey == null) {
-      apiKey = row.getString("apiKey");
-    }
-
     Integer userId = row.getInteger("user_id");
     if (userId == null) {
       userId = row.getInteger("userId");
@@ -122,11 +126,19 @@ public class Merchant {
       deletedAt = Timestamp.valueOf(deletedAtLocal);
     }
 
+    String description = row.getString("description");
+    String address = row.getString("address");
+    String contactEmail = row.getString("contact_email");
+    String contactPhone = row.getString("contact_phone");
+
     return Merchant.builder()
         .merchantId(merchantId)
         .merchantNo(merchantNo)
         .name(name)
-        .apiKey(apiKey)
+        .description(description)
+        .address(address)
+        .contactEmail(contactEmail)
+        .contactPhone(contactPhone)
         .userId(userId)
         .status(status)
         .createdAt(createdAt)

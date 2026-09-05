@@ -13,6 +13,7 @@ import pb.slider.SliderCommon.ApiResponseSliderAll;
 import pb.slider.SliderCommon.ApiResponseSliderDelete;
 import pb.slider.SliderCommon.ApiResponseSliderDeleteAt;
 import pb.slider.SliderCommon.FindByIdSliderRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class SliderCommandHandler implements pb.slider.VertxSliderCommandServiceGrpcServer.SliderCommandServiceApi {
@@ -102,4 +103,16 @@ public class SliderCommandHandler implements pb.slider.VertxSliderCommandService
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.slider.VertxSliderCommandServiceGrpcServer.SliderCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.TrashedSlider, this::trashedSlider);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.RestoreSlider, this::restoreSlider);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.DeleteSliderPermanent, this::deleteSliderPermanent);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.RestoreAllSlider, this::restoreAllSlider);
+    GrpcServerBinder.bind(server, pb.slider.VertxSliderCommandServiceGrpcServer.DeleteAllSliderPermanent, this::deleteAllSliderPermanent);
+    return this;
+  }
 }

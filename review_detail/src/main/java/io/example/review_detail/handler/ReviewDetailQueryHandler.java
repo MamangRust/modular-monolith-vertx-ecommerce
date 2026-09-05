@@ -9,6 +9,7 @@ import pb.review_detail.ReviewDetailCommon.ApiResponsePaginationReviewDetails;
 import pb.review_detail.ReviewDetailCommon.ApiResponsePaginationReviewDetailsDeleteAt;
 import pb.review_detail.ReviewDetailCommon.ApiResponseReviewDetail;
 import pb.review_detail.ReviewDetailCommon.FindByIdReviewDetailRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ReviewDetailQueryHandler
@@ -92,4 +93,13 @@ public class ReviewDetailQueryHandler
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.review_detail.VertxReviewDetailQueryServiceGrpcServer.ReviewDetailQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.review_detail.VertxReviewDetailQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.review_detail.VertxReviewDetailQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.review_detail.VertxReviewDetailQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.review_detail.VertxReviewDetailQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
+  }
 }

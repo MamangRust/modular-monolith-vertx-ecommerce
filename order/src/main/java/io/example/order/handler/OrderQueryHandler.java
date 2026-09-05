@@ -13,6 +13,7 @@ import pb.order.OrderCommon.ApiResponsePaginationOrder;
 import pb.order.OrderCommon.ApiResponsePaginationOrderDeleteAt;
 import pb.order.OrderCommon.FindByIdOrderRequest;
 import pb.order.VertxOrderQueryServiceGrpcServer.OrderQueryServiceApi;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class OrderQueryHandler implements OrderQueryServiceApi {
@@ -90,4 +91,13 @@ public class OrderQueryHandler implements OrderQueryServiceApi {
                         .build())
                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
     }
+
+  @Override
+  public pb.order.VertxOrderQueryServiceGrpcServer.OrderQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.order.VertxOrderQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.order.VertxOrderQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    return this;
+  }
 }

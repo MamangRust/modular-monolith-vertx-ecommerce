@@ -40,18 +40,18 @@ public class MerchantBusinessCommandRepositoryImpl implements MerchantBusinessCo
     return client
         .preparedQuery("""
             UPDATE merchant_business_information
-            SET business_type = $2, tax_id = $3, established_year = $4,
-                number_of_employees = $5, website_url = $6, updated_at = CURRENT_TIMESTAMP
+            SET business_type = COALESCE(NULLIF($2, ''), business_type), tax_id = COALESCE(NULLIF($3, ''), tax_id), established_year = COALESCE(NULLIF($4, ''), established_year),
+                number_of_employees = COALESCE(NULLIF($5, ''), number_of_employees), website_url = COALESCE(NULLIF($6, ''), website_url), updated_at = CURRENT_TIMESTAMP
             WHERE merchant_business_info_id = $1 AND deleted_at IS NULL
             RETURNING *;
             """)
         .execute(Tuple.of(
             (long) req.getMerchantBusinessInfoId(),
-            req.getBusinessType(),
-            req.getTaxId(),
-            req.getEstablishedYear(),
-            req.getNumberOfEmployees(),
-            req.getWebsiteUrl()))
+            req.getBusinessType() != null ? req.getBusinessType() : "",
+            req.getTaxId() != null ? req.getTaxId() : "",
+            req.getEstablishedYear() != null ? req.getEstablishedYear() : "",
+            req.getNumberOfEmployees() != null ? req.getNumberOfEmployees() : "",
+            req.getWebsiteUrl() != null ? req.getWebsiteUrl() : ""))
         .map(rows -> rows.iterator().hasNext() ? MerchantBusiness.fromRow(rows.iterator().next()) : null);
   }
 

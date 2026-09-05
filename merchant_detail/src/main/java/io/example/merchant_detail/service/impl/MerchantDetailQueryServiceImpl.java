@@ -78,7 +78,7 @@ public class MerchantDetailQueryServiceImpl implements MerchantDetailQueryServic
   }
 
   @Override
-  public Future<PagedResult<MerchantDetailResponse>> getMerchantDetailsActive(FindAllMerchantDetailRequest req) {
+  public Future<PagedResult<MerchantDetailResponseDeleteAt>> getMerchantDetailsActive(FindAllMerchantDetailRequest req) {
     var ctx = metrics.startSpan("MerchantDetailQueryService.getMerchantDetailsActive");
     String cacheKey = buildListCacheKey("active", req);
 
@@ -89,14 +89,14 @@ public class MerchantDetailQueryServiceImpl implements MerchantDetailQueryServic
               PagedResult<MerchantDetailsRelation> typedCached = mapper.readValue(
                   jsonStr, new TypeReference<PagedResult<MerchantDetailsRelation>>() {
                   });
-              return Future.succeededFuture(mapPagination(typedCached));
+              return Future.succeededFuture(mapPaginationDeleteAt(typedCached));
             } catch (Exception e) {
               log.warn("Failed to deserialize cached active merchant details: {}", e.getMessage());
             }
           }
           return repository.getMerchantDetailsActive(req)
               .compose(res -> redis.setJson(cacheKey, res, CACHE_TTL).map(v -> res))
-              .map(this::mapPagination);
+              .map(this::mapPaginationDeleteAt);
         })
         .onSuccess(r -> metrics.completeSpanSuccess(ctx, "get_active", "Success"))
         .onFailure(e -> metrics.completeSpanError(ctx, "get_active", e.getMessage()));

@@ -71,13 +71,13 @@ public class ShippingAddressCommandRepositoryImpl implements ShippingAddressComm
                 .preparedQuery("""
                         UPDATE shipping_addresses
                         SET
-                            alamat = $2,
-                            provinsi = $3,
-                            negara = $4,
-                            kota = $5,
-                            courier = $6,
-                            shipping_method = $7,
-                            shipping_cost = $8,
+                            alamat = COALESCE(NULLIF($2, ''), alamat),
+                            provinsi = COALESCE(NULLIF($3, ''), provinsi),
+                            negara = COALESCE(NULLIF($4, ''), negara),
+                            kota = COALESCE(NULLIF($5, ''), kota),
+                            courier = COALESCE(NULLIF($6, ''), courier),
+                            shipping_method = COALESCE(NULLIF($7, ''), shipping_method),
+                            shipping_cost = COALESCE(NULLIF($8::INT, 0), shipping_cost),
                             updated_at = CURRENT_TIMESTAMP
                         WHERE
                             shipping_address_id = $1

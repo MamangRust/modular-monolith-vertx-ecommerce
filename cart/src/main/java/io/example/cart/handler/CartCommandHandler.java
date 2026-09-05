@@ -10,6 +10,7 @@ import pb.cart.CartCommon.ApiResponseCartAll;
 import pb.cart.CartCommand.CreateCartRequest;
 import pb.cart.CartCommand.DeleteCartRequest;
 import pb.cart.CartCommand.DeleteAllCartRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class CartCommandHandler implements pb.cart.VertxCartCommandServiceGrpcServer.CartCommandServiceApi {
@@ -61,4 +62,12 @@ public class CartCommandHandler implements pb.cart.VertxCartCommandServiceGrpcSe
                                                 .build())
                                 .recover(GrpcExceptionMapper::toFailedFuture);
         }
+
+  @Override
+  public pb.cart.VertxCartCommandServiceGrpcServer.CartCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.cart.VertxCartCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.cart.VertxCartCommandServiceGrpcServer.Delete, this::delete);
+    GrpcServerBinder.bind(server, pb.cart.VertxCartCommandServiceGrpcServer.DeleteAll, this::deleteAll);
+    return this;
+  }
 }

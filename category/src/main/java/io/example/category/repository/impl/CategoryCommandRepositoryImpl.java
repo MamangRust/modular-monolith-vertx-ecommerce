@@ -34,7 +34,8 @@ public class CategoryCommandRepositoryImpl implements CategoryCommandRepository 
                             slug_category,
                             image_category,
                             created_at,
-                            updated_at;
+                            updated_at,
+                            deleted_at;
                         """)
                 .execute(Tuple.of(req.getName(), req.getDescription(), req.getSlugCategory(), req.getImageCategory()))
                 .map(rows -> Category.fromRow(rows.iterator().next()));
@@ -46,10 +47,10 @@ public class CategoryCommandRepositoryImpl implements CategoryCommandRepository 
                 .preparedQuery("""
                         UPDATE categories
                         SET
-                            name = $2,
-                            description = $3,
-                            slug_category = $4,
-                            image_category = $5,
+                            name = COALESCE(NULLIF($2, ''), name),
+                            description = COALESCE(NULLIF($3, ''), description),
+                            slug_category = COALESCE(NULLIF($4, ''), slug_category),
+                            image_category = COALESCE(NULLIF($5, ''), image_category),
                             updated_at = CURRENT_TIMESTAMP
                         WHERE
                             category_id = $1
@@ -61,10 +62,11 @@ public class CategoryCommandRepositoryImpl implements CategoryCommandRepository 
                             slug_category,
                             image_category,
                             created_at,
-                            updated_at;
+                            updated_at,
+                            deleted_at;
                         """)
-                .execute(Tuple.of(req.getId(), req.getName(), req.getDescription(), req.getSlugCategory(),
-                        req.getImageCategory()))
+                .execute(Tuple.of(req.getId(), req.getName() != null ? req.getName() : "", req.getDescription() != null ? req.getDescription() : "", req.getSlugCategory() != null ? req.getSlugCategory() : "",
+                        req.getImageCategory() != null ? req.getImageCategory() : ""))
                 .map(rows -> rows.iterator().hasNext() ? Category.fromRow(rows.iterator().next()) : null);
     }
 

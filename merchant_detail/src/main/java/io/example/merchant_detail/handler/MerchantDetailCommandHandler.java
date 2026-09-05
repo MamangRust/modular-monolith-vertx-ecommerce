@@ -13,6 +13,7 @@ import pb.merchant.MerchantCommon.ApiResponseMerchantDelete;
 import pb.merchant_detail.MerchantDetailCommon.ApiResponseMerchantDetail;
 import pb.merchant_detail.MerchantDetailCommon.ApiResponseMerchantDetailDeleteAt;
 import pb.merchant_detail.MerchantDetailCommon.FindByIdMerchantDetailRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class MerchantDetailCommandHandler
@@ -112,4 +113,16 @@ public class MerchantDetailCommandHandler
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.MerchantDetailCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.TrashedMerchantDetail, this::trashedMerchantDetail);
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.RestoreMerchantDetail, this::restoreMerchantDetail);
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.DeleteMerchantDetailPermanent, this::deleteMerchantDetailPermanent);
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.RestoreAllMerchantDetail, this::restoreAllMerchantDetail);
+    GrpcServerBinder.bind(server, pb.merchant_detail.VertxMerchantDetailCommandServiceGrpcServer.DeleteAllMerchantDetailPermanent, this::deleteAllMerchantDetailPermanent);
+    return this;
+  }
 }

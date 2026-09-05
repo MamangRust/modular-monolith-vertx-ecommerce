@@ -9,6 +9,7 @@ import pb.shipping_address.ShippingAddressCommon.ApiResponsePaginationShipping;
 import pb.shipping_address.ShippingAddressCommon.ApiResponsePaginationShippingDeleteAt;
 import pb.shipping_address.ShippingAddressCommon.ApiResponseShipping;
 import pb.shipping_address.ShippingAddressCommon.FindByIdShippingRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class ShippingAddressQueryHandler
@@ -94,4 +95,14 @@ public class ShippingAddressQueryHandler
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.shipping_address.VertxShippingQueryServiceGrpcServer.ShippingQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingQueryServiceGrpcServer.FindAll, this::findAll);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingQueryServiceGrpcServer.FindByActive, this::findByActive);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingQueryServiceGrpcServer.FindByTrashed, this::findByTrashed);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingQueryServiceGrpcServer.FindById, this::findById);
+    GrpcServerBinder.bind(server, pb.shipping_address.VertxShippingQueryServiceGrpcServer.FindByOrder, this::findByOrder);
+    return this;
+  }
 }

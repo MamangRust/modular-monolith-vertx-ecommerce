@@ -23,9 +23,15 @@ public class UserRepositoryImpl implements UserRepository {
 
     @Override
     public Future<AuthUser> findByEmailAndVerify(String email) {
-        return pool.preparedQuery("SELECT * FROM users WHERE email = $1 AND is_verified = true AND deleted_at IS NULL")
+        return pool.preparedQuery("""
+                SELECT u.*, r.role_name
+                FROM users u
+                JOIN user_roles ur ON ur.user_id = u.user_id AND ur.deleted_at IS NULL
+                JOIN roles r ON r.role_id = ur.role_id AND r.deleted_at IS NULL
+                WHERE u.email = $1 AND u.is_verified = true AND u.deleted_at IS NULL
+                """)
                 .execute(Tuple.of(email))
-                .map(rows -> rows.iterator().hasNext() ? AuthUser.fromRow(rows.iterator().next()) : null);
+                .map(AuthUser::fromRowsWithRoles);
     }
 
     @Override
@@ -41,10 +47,10 @@ public class UserRepositoryImpl implements UserRepository {
                 .preparedQuery(
                         """
                                 INSERT INTO users (firstname, lastname, email, password, verification_code, is_verified, created_at, updated_at)
-                                VALUES ($1, $2, $3, $4, $5, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                                 RETURNING *
                                 """)
-                .execute(Tuple.of(request.getFirstName(), request.getLastName(), request.getEmail(), request.getPassword(), request.getVerificationCode()))
+                .execute(Tuple.of(request.getFirstName(), request.getLastName(), request.getEmail(), request.getPassword(), request.getVerificationCode(), request.isVerified()))
                 .map(rows -> AuthUser.fromRow(rows.iterator().next()));
     }
 

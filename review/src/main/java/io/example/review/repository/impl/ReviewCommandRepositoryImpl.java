@@ -33,11 +33,11 @@ public class ReviewCommandRepositoryImpl implements ReviewCommandRepository {
         return client
                 .preparedQuery("""
                         UPDATE reviews
-                        SET name = $2, comment = $3, rating = $4, updated_at = CURRENT_TIMESTAMP
+                        SET name = COALESCE(NULLIF($2, ''), name), comment = COALESCE(NULLIF($3, ''), comment), rating = COALESCE(NULLIF($4::INT, 0), rating), updated_at = CURRENT_TIMESTAMP
                         WHERE review_id = $1 AND deleted_at IS NULL
                         RETURNING *
                         """)
-                .execute(Tuple.of(req.getReviewId(), req.getName(), req.getComment(), req.getRating()))
+                .execute(Tuple.of(req.getReviewId(), req.getName() != null ? req.getName() : "", req.getComment() != null ? req.getComment() : "", req.getRating()))
                 .map(rows -> rows.iterator().hasNext() ? Review.fromRow(rows.iterator().next()) : null);
     }
 

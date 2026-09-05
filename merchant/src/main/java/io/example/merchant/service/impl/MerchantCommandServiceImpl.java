@@ -1,8 +1,6 @@
 package io.example.merchant.service.impl;
 
 import java.util.Map;
-import java.util.UUID;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,11 +48,13 @@ public class MerchantCommandServiceImpl implements MerchantCommandService {
 
     return userRepo.getUserById(request.getUserId())
         .compose(user -> {
-          String apiKey = "mc_" + UUID.randomUUID().toString().replace("-", "");
           CreateMerchantRequest repoRequest = CreateMerchantRequest.builder()
               .userId(request.getUserId())
               .name(request.getName())
-              .apiKey(apiKey)
+              .description(request.getDescription())
+              .address(request.getAddress())
+              .contactEmail(request.getContactEmail())
+              .contactPhone(request.getContactPhone())
               .status(request.getStatus())
               .build();
           return repo.createMerchant(repoRequest)
@@ -80,7 +80,10 @@ public class MerchantCommandServiceImpl implements MerchantCommandService {
         })
         .map(MerchantResponse::from)
         .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createMerchant", "Success"))
-        .onFailure(e -> metrics.completeSpanError(ctx, "createMerchant", e.getMessage()));
+        .onFailure(e -> {
+          log.error("Merchant creation failed for userId={} name={}", request.getUserId(), request.getName(), e);
+          metrics.completeSpanError(ctx, "createMerchant", e.getMessage());
+        });
   }
 
   @Override

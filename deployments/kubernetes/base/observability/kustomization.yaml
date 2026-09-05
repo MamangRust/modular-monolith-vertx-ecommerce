@@ -5,6 +5,8 @@ resources:
 - alertmanager-config.yaml
 - alertmanager-deployment.yaml
 - grafana-deployment.yaml
+- grafana-datasource-configmap.yaml
+- grafana-dashboards-configmap.yaml
 - grafana-service.yaml
 - jaeger-deployment.yaml
 - jaeger-service.yaml
@@ -21,5 +23,6 @@ resources:
 - otel-collector-deployment.yaml
 - otel-collector-service.yaml
 - prometheus-configmap.yaml
+- prometheus-rules-configmap.yaml
 - prometheus-deployment.yaml
 - prometheus.yaml

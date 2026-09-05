@@ -7,6 +7,7 @@ import io.vertx.core.Future;
 import lombok.RequiredArgsConstructor;
 import pb.cart.CartCommon.ApiResponsePaginationCart;
 import pb.cart.CartQuery.FindAllCartRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class CartQueryHandler implements pb.cart.VertxCartQueryServiceGrpcServer.CartQueryServiceApi {
@@ -45,4 +46,10 @@ public class CartQueryHandler implements pb.cart.VertxCartQueryServiceGrpcServer
                         .build())
                 .recover(err -> GrpcExceptionMapper.toFailedFuture(err));
     }
+
+  @Override
+  public pb.cart.VertxCartQueryServiceGrpcServer.CartQueryServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.cart.VertxCartQueryServiceGrpcServer.FindAll, this::findAll);
+    return this;
+  }
 }

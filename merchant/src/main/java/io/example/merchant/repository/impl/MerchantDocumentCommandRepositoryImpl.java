@@ -35,16 +35,16 @@ public class MerchantDocumentCommandRepositoryImpl implements MerchantDocumentCo
         .preparedQuery(
             """
                 UPDATE merchant_documents
-                SET merchant_id = $1, document_type = $2, document_url = $3, note = $4, status = $5, updated_at = CURRENT_TIMESTAMP
+                SET merchant_id = COALESCE(NULLIF($1::INT, 0), merchant_id), document_type = COALESCE(NULLIF($2, ''), document_type), document_url = COALESCE(NULLIF($3, ''), document_url), note = COALESCE(NULLIF($4, ''), note), status = COALESCE(NULLIF($5, ''), status), updated_at = CURRENT_TIMESTAMP
                 WHERE document_id = $6 AND deleted_at IS NULL
                 RETURNING document_id, merchant_id, document_type, document_url, status, note, uploaded_at, created_at, updated_at, deleted_at
                 """)
         .execute(Tuple.of(
-            request.getMerchantId(),
-            request.getDocumentType(),
-            request.getDocumentUrl(),
-            request.getNote(),
-            request.getStatus(),
+            request.getMerchantId() != null ? request.getMerchantId() : 0,
+            request.getDocumentType() != null ? request.getDocumentType() : "",
+            request.getDocumentUrl() != null ? request.getDocumentUrl() : "",
+            request.getNote() != null ? request.getNote() : "",
+            request.getStatus() != null ? request.getStatus() : "",
             request.getDocumentId()))
         .map(this::mapSingleOrNull);
   }

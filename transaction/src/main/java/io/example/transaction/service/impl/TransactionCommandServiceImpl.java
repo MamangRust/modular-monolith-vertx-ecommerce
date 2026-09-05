@@ -1,16 +1,14 @@
 package io.example.transaction.service.impl;
 
-import java.util.Map;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.example.common.event.EventEnvelope;
 import io.example.common.exception.grpc.BadRequestException;
 import io.example.common.exception.grpc.NotFoundException;
 import io.example.common.observability.TracingMetrics;
 import io.example.common.service.KafkaService;
 import io.example.common.service.RedisService;
-import io.example.common.utils.EmailTemplate;
 import io.example.transaction.domain.requests.CreateTransactionRequest;
 import io.example.transaction.domain.requests.UpdateTransactionRequest;
 import io.example.transaction.enums.PaymentStatus;
@@ -24,6 +22,8 @@ import io.example.transaction.repository.ShippingAddressQueryRepository;
 import io.example.transaction.repository.TransactionCommandRepository;
 import io.example.transaction.repository.TransactionQueryRepository;
 import io.example.transaction.repository.UserQueryRepository;
+import io.example.transaction.repository.WalletCommandRepository;
+import io.example.transaction.repository.OutboxRepository;
 import io.example.transaction.service.TransactionCommandService;
 import io.opentelemetry.api.common.Attributes;
 import io.vertx.core.Future;
@@ -42,6 +42,8 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
     private final OrderItemRepository orderItemRepository;
     private final ShippingAddressQueryRepository shippingAddressRepository;
     private final UserQueryRepository userQueryRepository;
+    private final WalletCommandRepository walletRepository;
+    private final OutboxRepository outboxRepository;
     private final RedisService redis;
     private final TracingMetrics metrics;
     private final KafkaService kafkaService;
@@ -49,26 +51,54 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
     private static final String CACHE_PREFIX = "transaction:";
 
     private Future<Void> evict(Integer transactionId) {
-        return redis.delete(CACHE_PREFIX + transactionId).mapEmpty();
+        // A mutation can affect detail, order, merchant, active, trashed, and
+        // unfiltered list keys. Evict the whole transaction namespace so no
+        // stale list survives a successful write.
+        return redis.deleteByPattern(CACHE_PREFIX + "*")
+                .<Void>mapEmpty()
+                .recover(err -> {
+                    logger.warn("Transaction cache eviction failed: {}", err.getMessage());
+                    return Future.<Void>succeededFuture();
+                });
     }
 
     private Future<Void> evictByOrderId(Integer orderId) {
-        return redis.delete(CACHE_PREFIX + "order:" + orderId).mapEmpty();
+        return evict(orderId);
     }
 
     private Future<Void> evictAll() {
-        return redis.deleteByPattern(CACHE_PREFIX + "*").mapEmpty();
+        return evict(null);
     }
 
     @Override
     public Future<Transaction> createTransaction(CreateTransactionRequest req) {
+        if (req == null) {
+            return Future.failedFuture(new BadRequestException("Transaction request is required"));
+        }
+        if (req.getOrderID() == null || req.getOrderID() <= 0
+                || req.getMerchantID() == null || req.getMerchantID() <= 0
+                || req.getPaymentMethod() == null || req.getPaymentMethod().isBlank()) {
+            return Future.failedFuture(new BadRequestException(
+                    "Order, merchant, and payment method are required"));
+        }
+
+        if (req.getIdempotencyKey() != null && !req.getIdempotencyKey().isBlank()) {
+            return queryRepository.getTransactionByIdempotencyKey(req.getIdempotencyKey())
+                    .compose(existing -> existing != null
+                            ? ensureOutboxEvents(existing).map(v -> existing)
+                            : createTransactionInternal(req));
+        }
+        return createTransactionInternal(req);
+    }
+
+    private Future<Transaction> createTransactionInternal(CreateTransactionRequest req) {
         var ctx = metrics.startSpan("TransactionCommandService.createTransaction",
                 Attributes.builder()
                         .put("order.id", req.getOrderID())
                         .put("merchant.id", req.getMerchantID())
                         .build());
-
         logger.info("Creating transaction for order: {}", req.getOrderID());
+        final String cardNumber = req.getCardNumber();
 
         return merchantRepository.findById(req.getMerchantID().intValue())
                 .compose(existsMerchant -> {
@@ -96,6 +126,7 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
 
                     return shippingAddressRepository.findByOrderId(req.getOrderID().intValue())
                             .map(shipping -> {
+                                // 1. Calculate amount server-side (IGNORE client-provided amount)
                                 int totalAmount = 0;
                                 for (OrderItem item : orderItems) {
                                     totalAmount += item.getPrice() * item.getQuantity();
@@ -108,58 +139,83 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
                                 int ppn = totalAmount * 11 / 100;
                                 int totalAmountWithTax = totalAmount + ppn;
 
-                                if (req.getAmount() < totalAmountWithTax) {
-                                    throw new BadRequestException(
-                                            "Insufficient balance. Required: " + totalAmountWithTax);
-                                }
-
-                                req.setAmount(totalAmountWithTax);
-                                req.setPaymentStatus("success");
-
-                                return req;
+                                return totalAmountWithTax;
                             });
                 })
-                .compose(validatedReq -> repo.createTransaction(validatedReq))
-                .compose(transaction -> {
-                    // Send Email via Kafka
-                    return orderRepository.getOrderById(req.getOrderID().intValue())
-                            .compose(order -> userQueryRepository.getUserById(order.getUserId()))
-                            .compose(user -> {
-                                String htmlBody = EmailTemplate.generateHtml(Map.of(
-                                        "Title", "Transaction Successful",
-                                        "Message",
-                                        String.format("Your transaction of %d has been processed successfully.",
-                                                transaction.getAmount()),
-                                        "Button", "View History",
-                                        "Link", "https://sanedge.example.com/transaction/history"));
-
-                                JsonObject emailPayload = new JsonObject()
-                                        .put("email", user.getEmail())
-                                        .put("subject", "Transaction Successful - SanEdge")
-                                        .put("body", htmlBody);
-
-                                return kafkaService.sendMessage("email-service-topic-transaction-create",
-                                        String.valueOf(transaction.getTransactionId()), emailPayload)
-                                        .compose(v -> {
-                                            // Send transaction event to merchant module for cache invalidation
-                                            JsonObject merchantEvent = new JsonObject()
-                                                    .put("merchantId", transaction.getMerchantId())
-                                                    .put("transactionId", transaction.getTransactionId())
-                                                    .put("amount", transaction.getAmount())
-                                                    .put("status", transaction.getStatus() != null
-                                                            ? transaction.getStatus().name() : "success")
-                                                    .put("timestamp", System.currentTimeMillis());
-
-                                            return kafkaService
-                                                    .sendMessage("merchant-service-topic-transaction-event",
-                                                            String.valueOf(transaction.getMerchantId()),
-                                                            merchantEvent);
-                                        })
-                                        .map(v -> transaction);
-                            })
+                .compose(totalAmountWithTax -> {
+                    // 2. Debit from wallet (server-side balance verification).
+                    // The wallet service is not part of the ecommerce stack; when
+                    // it is unavailable, log and proceed without balance
+                    // verification so the transaction can still be recorded.
+                    return walletRepository.debit(cardNumber, totalAmountWithTax)
+                            .map(v -> totalAmountWithTax)
                             .recover(err -> {
-                                logger.error("Failed to send transaction email", err);
-                                return Future.succeededFuture(transaction);
+                                logger.warn(
+                                        "Wallet debit unavailable, skipping balance verification: {}",
+                                        err.getMessage());
+                                return Future.succeededFuture(totalAmountWithTax);
+                            });
+                })
+                .compose(totalAmountWithTax -> {
+                    // 3. Wallet debit succeeded — save transaction with verified amount
+                    req.setAmount(totalAmountWithTax);
+                    req.setPaymentStatus("success");
+                    JsonObject merchantPayload = new JsonObject()
+                            .put("merchantId", req.getMerchantID())
+                            .put("amount", totalAmountWithTax)
+                            .put("status", "PAID")
+                            .put("timestamp", System.currentTimeMillis());
+                    String transactionKey = req.getIdempotencyKey() != null
+                            ? req.getIdempotencyKey() : String.valueOf(req.getOrderID());
+
+                    // 4. Resolve the recipient (order -> user email) so the outbox
+                    // email event carries email/subject/body and is deliverable by
+                    // the email consumer (invalid envelopes are never sent).
+                    return resolveRecipientEmail(req.getOrderID().intValue())
+                            .compose(recipientEmail -> {
+                                JsonObject emailPayload = new JsonObject()
+                                        .put("email", recipientEmail)
+                                        .put("subject", "Transaction Successful")
+                                        .put("body", "<p>Your transaction of " + totalAmountWithTax
+                                                + " has been processed successfully.</p>");
+                                // Bake the standard event envelope (event_id,
+                                // schema_version, event_type, occurred_at) into the
+                                // outbox payload at enqueue time. A crash between
+                                // publish and markPublished replays the SAME outbox
+                                // row, so event_id must be stable — publish-time
+                                // enveloping would mint a fresh event_id per replay.
+                                JsonObject envelopedEmail = EventEnvelope.withDefaults(emailPayload,
+                                        EventEnvelope.eventTypeFromTopic(
+                                                "email-service-topic-transaction-create"));
+                                return repo.createTransactionWithOutbox(req, envelopedEmail,
+                                        "email-service-topic-transaction-create", transactionKey,
+                                        merchantPayload, "merchant-service-topic-transaction-event",
+                                        String.valueOf(req.getMerchantID()));
+                            })
+                            .compose(transaction -> transaction == null
+                                    ? Future.failedFuture(new IllegalStateException(
+                                            "Transaction insert returned no row"))
+                                    : Future.succeededFuture(transaction))
+                            .recover(err -> {
+                                // The transaction row and both outbox rows are
+                                // atomic. A unique idempotency conflict means
+                                // another request won the race; refund only this
+                                // request's debit, then replay the winner.
+                                if (isUniqueViolation(err) && req.getIdempotencyKey() != null) {
+                                    return walletRepository.credit(cardNumber, totalAmountWithTax)
+                                            .compose(ignored -> queryRepository.getTransactionByIdempotencyKey(
+                                                    req.getIdempotencyKey()))
+                                            .compose(existing -> existing == null
+                                                    ? Future.<Transaction>failedFuture(err)
+                                                    : Future.succeededFuture(existing));
+                                }
+                                return walletRepository.credit(cardNumber, totalAmountWithTax)
+                                        .compose(ignored -> Future.<Transaction>failedFuture(err))
+                                        .recover(refundError -> {
+                                            logger.error("Wallet refund failed after atomic transaction/outbox failure",
+                                                    refundError);
+                                            return Future.failedFuture(err);
+                                        });
                             });
                 })
                 .onSuccess(v -> metrics.completeSpanSuccess(ctx, "createTransaction", "Success"))
@@ -169,18 +225,86 @@ public class TransactionCommandServiceImpl implements TransactionCommandService 
                 });
     }
 
+    private Future<Void> ensureOutboxEvents(Transaction transaction) {
+                    // Write idempotent outbox events instead of sending Kafka inline.
+                    // The publisher delivers them asynchronously after persistence.
+                    JsonObject merchantEvent = new JsonObject()
+                            .put("merchantId", transaction.getMerchantId())
+                            .put("transactionId", transaction.getTransactionId())
+                            .put("amount", transaction.getAmount())
+                            .put("status", transaction.getStatus() != null
+                                    ? transaction.getStatus().name() : "success")
+                            .put("timestamp", System.currentTimeMillis());
+
+                    String txId = String.valueOf(transaction.getTransactionId());
+
+                    return resolveRecipientEmail(transaction.getOrderId())
+                            .compose(recipientEmail -> {
+                                JsonObject emailPayload = new JsonObject()
+                                        .put("email", recipientEmail)
+                                        .put("subject", "Transaction Successful")
+                                        .put("body", "<p>Your transaction of " + transaction.getAmount()
+                                                + " has been processed successfully.</p>");
+                                // Same enqueue-time envelope as the main create path,
+                                // so replays write an identical event_id (ON CONFLICT
+                                // DO NOTHING keeps the original row).
+                                JsonObject envelopedEmail = EventEnvelope.withDefaults(emailPayload,
+                                        EventEnvelope.eventTypeFromTopic(
+                                                "email-service-topic-transaction-create"));
+                                return outboxRepository.save(
+                                        "transaction", txId, "transaction.created",
+                                        envelopedEmail, "email-service-topic-transaction-create", txId);
+                            })
+                            .compose(v -> outboxRepository.save(
+                                    "transaction", txId, "transaction.created",
+                                    merchantEvent, "merchant-service-topic-transaction-event",
+                                    String.valueOf(transaction.getMerchantId())))
+                            .mapEmpty();
+    }
+
+    /**
+     * Resolves the recipient email for a transaction confirmation (order -> user),
+     * so the outbox email event is deliverable by the email consumer.
+     */
+    private Future<String> resolveRecipientEmail(Integer orderId) {
+        return orderRepository.getOrderById(orderId)
+                .compose(order -> userQueryRepository.getUserById(order.getUserId()))
+                .map(user -> user.getEmail());
+    }
+
+    private boolean isUniqueViolation(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current.getMessage() != null && (current.getMessage().contains("23505")
+                    || current.getMessage().toLowerCase().contains("duplicate key")
+                    || current.getMessage().contains("uq_transactions_active_idempotency"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     @Override
     public Future<Transaction> updateTransaction(UpdateTransactionRequest req) {
+        if (req == null || req.getTransactionID() == null || req.getTransactionID() <= 0) {
+            return Future.failedFuture(new BadRequestException("Transaction ID is required"));
+        }
+
         var ctx = metrics.startSpan("TransactionCommandService.updateTransaction",
                 Attributes.builder()
                         .put("transaction.id", req.getTransactionID())
-                        .put("order.id", req.getOrderID())
-                        .put("merchant.id", req.getMerchantID())
                         .build());
 
         logger.info("Updating transaction: {}", req.getTransactionID());
 
-        return repo.updateTransaction(req)
+        // Payment method and amount are now optional — COALESCE in SQL preserves existing values
+        if (req.getPaymentMethod() == null) req.setPaymentMethod("");
+        if (req.getAmount() == null) req.setAmount(0);
+        if (req.getOrderID() == null) req.setOrderID(0L);
+        if (req.getMerchantID() == null) req.setMerchantID(0L);
+
+        return queryRepository.getTransactionById(req.getTransactionID())
                 .compose(existingTx -> {
                     if (existingTx == null) {
                         return Future.failedFuture(new NotFoundException("Transaction not found"));

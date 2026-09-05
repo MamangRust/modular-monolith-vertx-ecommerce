@@ -68,7 +68,10 @@ public class ProductCommandServiceImpl implements ProductCommandService {
                 .compose(data -> evict(data.getProductId()).map(v -> data))
                 .map(ProductResponse::from)
                 .onSuccess(v -> metrics.completeSpanSuccess(ctx, "create", "Success"))
-                .onFailure(e -> metrics.completeSpanError(ctx, "create", e.getMessage()));
+                .onFailure(e -> {
+                    logger.error("Failed to create product: {}", req.getName(), e);
+                    metrics.completeSpanError(ctx, "create", e.getMessage());
+                });
     }
 
     @Override
@@ -76,13 +79,21 @@ public class ProductCommandServiceImpl implements ProductCommandService {
         var ctx = metrics.startSpan("ProductCommandService.update",
                 Attributes.builder().put("product.id", req.getProductId()).build());
 
-        return categoryRepo.findById(req.getCategoryId().intValue())
+        // Conditional checks: only validate existence if IDs are actually provided
+        var categoryIdFuture = (req.getCategoryId() != null && req.getCategoryId() > 0)
+                ? categoryRepo.findById(req.getCategoryId().intValue())
+                : Future.succeededFuture(true);
+        var merchantIdFuture = (req.getMerchantId() != null && req.getMerchantId() > 0)
+                ? merchantRepo.findById(req.getMerchantId().intValue())
+                : Future.succeededFuture(true);
+
+        return categoryIdFuture
                 .compose(existsCategory -> {
                     if (!existsCategory) {
                         return Future.failedFuture(
                                 new NotFoundException("Category not found with ID: " + req.getCategoryId()));
                     }
-                    return merchantRepo.findById(req.getMerchantId().intValue());
+                    return merchantIdFuture;
                 })
                 .compose(existsMerchant -> {
                     if (!existsMerchant) {
@@ -117,6 +128,39 @@ public class ProductCommandServiceImpl implements ProductCommandService {
                 .map(ProductResponse::from)
                 .onSuccess(v -> metrics.completeSpanSuccess(ctx, "update_stock", "Success"))
                 .onFailure(e -> metrics.completeSpanError(ctx, "update_stock", e.getMessage()));
+    }
+
+    @Override
+    public Future<ProductResponse> decrementStock(Integer productId, Integer quantity) {
+        var ctx = metrics.startSpan("ProductCommandService.decrementStock",
+                Attributes.builder()
+                        .put("product.id", productId)
+                        .put("quantity", quantity)
+                        .build());
+
+        logger.info("Atomically decrementing stock for product: {} by {}", productId, quantity);
+
+        return repository.decrementStock(productId, quantity)
+                .compose(data -> evict(productId).map(v -> data))
+                .map(ProductResponse::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "decrement_stock", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "decrement_stock", e.getMessage()));
+    }
+
+    @Override
+    public Future<ProductResponse> incrementStock(Integer productId, Integer quantity) {
+        if (productId == null || productId <= 0 || quantity == null || quantity <= 0) {
+            return Future.failedFuture(new BadRequestException(
+                    "Product ID and a positive quantity are required"));
+        }
+
+        var ctx = metrics.startSpan("ProductCommandService.incrementStock",
+                Attributes.builder().put("product.id", productId).put("quantity", quantity).build());
+        return repository.incrementStock(productId, quantity)
+                .compose(data -> evict(productId).map(v -> data))
+                .map(ProductResponse::from)
+                .onSuccess(v -> metrics.completeSpanSuccess(ctx, "increment_stock", "Success"))
+                .onFailure(e -> metrics.completeSpanError(ctx, "increment_stock", e.getMessage()));
     }
 
     @Override

@@ -37,6 +37,5 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl merchant_detail -a
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/merchant_detail/target/merchant_detail-*-fat.jar app.jar
-COPY chaos.yaml .
 EXPOSE 50067
 ENTRYPOINT ["java", "-jar", "app.jar"]

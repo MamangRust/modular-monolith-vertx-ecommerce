@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: merchant_detail
+  name: merchant-detail
   namespace: ecommerce
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: merchant_detail
+      app: merchant-detail
   template:
     metadata:
       labels:
-        app: merchant_detail
+        app: merchant-detail
     spec:
       initContainers:
         - name: init-log-permission
@@ -27,8 +27,8 @@ spec:
           securityContext:
             runAsUser: 0
       containers:
-        - name: merchant_detail
-          image: merchant_detail-ecommerce-service:1.0
+        - name: merchant-detail
+          image: ghcr.io/__GHCR_OWNER__/vertx-ecommerce/merchant_detail:latest
           envFrom:
             - configMapRef:
                 name: app-config
@@ -39,16 +39,36 @@ spec:
             - containerPort: 50067
           resources:
             requests:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "250m"
             limits:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8097
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /health/ready
               port: 8097
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: 8097
+            failureThreshold: 30
             periodSeconds: 10
-            failureThreshold: 5
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           imagePullPolicy: IfNotPresent

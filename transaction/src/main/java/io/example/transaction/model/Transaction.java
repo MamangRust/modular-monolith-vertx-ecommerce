@@ -74,8 +74,10 @@ public class Transaction {
             return null;
         PaymentStatus stat = null;
         try {
-            if (row.getString("payment_status") != null) {
-                String val = row.getString("payment_status").toUpperCase();
+            String paymentStatus = row.getColumnIndex("payment_status") >= 0
+                    ? row.getString("payment_status") : row.getString("status");
+            if (paymentStatus != null) {
+                String val = paymentStatus.toUpperCase();
                 if ("SUCCESS".equals(val)) {
                     stat = PaymentStatus.PAID;
                 } else {
@@ -87,7 +89,7 @@ public class Transaction {
 
         return Transaction.builder()
                 .transactionId(row.getLong("transaction_id"))
-                .orderId(row.getInteger("order_id"))
+                .orderId(row.getColumnIndex("order_id") >= 0 ? row.getInteger("order_id") : null)
                 .merchantId(row.getInteger("merchant_id"))
                 .paymentMethod(row.getString("payment_method"))
                 .amount(row.getInteger("amount"))
@@ -114,8 +116,13 @@ public class Transaction {
     }
 
     private static Timestamp getTimestampFromRow(Row row, String column) {
-        LocalDateTime localDateTime = row.get(LocalDateTime.class, column);
-        return localDateTime != null ? Timestamp.valueOf(localDateTime) : null;
+        try {
+            if (row.getColumnIndex(column) < 0) return null;
+            LocalDateTime localDateTime = row.get(LocalDateTime.class, column);
+            return localDateTime != null ? Timestamp.valueOf(localDateTime) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override

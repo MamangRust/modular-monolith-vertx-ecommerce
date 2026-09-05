@@ -5,3 +5,5 @@ resources:
 - cart-deployment.yaml
 - cart-hpa.yaml
 - cart-service.yaml
+- pdb.yaml
+- network-policy.yaml

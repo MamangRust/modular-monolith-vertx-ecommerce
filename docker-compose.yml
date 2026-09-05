@@ -2,10 +2,11 @@ services:
   postgres:
     image: postgres:17-alpine
     container_name: postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: DRAGON
       POSTGRES_PASSWORD: DRAGON
-      POSTGRES_DB: PAYMENT_GATEWAY
+      POSTGRES_DB: ECOMMERCE
       POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
       PGDATA: /var/lib/postgresql/data/pgdata
     command:
@@ -59,18 +60,18 @@ services:
     networks:
       - app_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U DRAGON -d PAYMENT_GATEWAY"]
+      test: ["CMD-SHELL", "pg_isready -U DRAGON -d ECOMMERCE"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: postgres_exporter
     restart: unless-stopped
 
     environment:
-      DATA_SOURCE_NAME: "postgresql://DRAGON:DRAGON@postgres:5432/PAYMENT_GATEWAY?sslmode=disable&connect_timeout=10"
+      DATA_SOURCE_NAME: "postgresql://DRAGON:DRAGON@postgres:5432/ECOMMERCE?sslmode=disable&connect_timeout=10"
       PG_EXPORTER_AUTO_DISCOVER_DATABASES: "true"
       PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
       PG_EXPORTER_DISABLE_SETTINGS_METRICS: "false"
@@ -99,7 +100,7 @@ services:
       DB_PORT: 5432
       DB_USER: DRAGON
       DB_PASSWORD: DRAGON
-      DB_NAME: PAYMENT_GATEWAY
+      DB_NAME: ECOMMERCE
 
       AUTH_TYPE: scram-sha-256
 
@@ -128,6 +129,10 @@ services:
       ADMIN_USERS: DRAGON
       STATS_USERS: DRAGON
 
+      # Vert.x clients use unnamed prepared queries with transaction pooling.
+      # Disable PgBouncer prepared-statement tracking to avoid cross-query reuse.
+      MAX_PREPARED_STATEMENTS: 0
+
       LOG_CONNECTIONS: 0
       LOG_DISCONNECTIONS: 0
       LOG_POOLER_ERRORS: 1
@@ -154,7 +159,7 @@ services:
       start_period: 30s
 
   pyroscope:
-    image: grafana/pyroscope:latest
+    image: grafana/pyroscope:1.10.0
     ports:
       - 4040:4040
     networks:
@@ -163,6 +168,7 @@ services:
   redis-node-1:
     image: redis:7.4
     container_name: redis-node-1
+    restart: unless-stopped
     command: >
       redis-server
       --port 6379
@@ -180,6 +186,7 @@ services:
   redis-node-2:
     image: redis:7.4
     container_name: redis-node-2
+    restart: unless-stopped
     command: >
       redis-server
       --port 6379
@@ -197,6 +204,7 @@ services:
   redis-node-3:
     image: redis:7.4
     container_name: redis-node-3
+    restart: unless-stopped
     command: >
       redis-server
       --port 6379
@@ -214,6 +222,7 @@ services:
   redis-node-4:
     image: redis:7.4
     container_name: redis-node-4
+    restart: unless-stopped
     command: >
       redis-server
       --port 6379
@@ -231,6 +240,7 @@ services:
   redis-node-5:
     image: redis:7.4
     container_name: redis-node-5
+    restart: unless-stopped
     command: >
       redis-server
       --port 6379
@@ -248,6 +258,7 @@ services:
   redis-node-6:
     image: redis:7.4
     container_name: redis-node-6
+    restart: unless-stopped
     command: >
       redis-server
       --port 6379
@@ -265,6 +276,7 @@ services:
   redis-cluster-creator:
     image: redis:7.4
     container_name: redis-cluster-creator
+    restart: "no"
     networks:
       - app_network
     depends_on:
@@ -277,6 +289,10 @@ services:
     entrypoint: >
       sh -c "
       sleep 5 &&
+      if redis-cli -a dragon_knight --no-auth-warning -h redis-node-1 -p 6379 cluster info | grep -q 'cluster_state:ok'; then
+        echo 'Redis cluster already exists, skipping creation' &&
+        exit 0
+      fi &&
       echo yes | redis-cli --cluster create
       redis-node-1:6379
       redis-node-2:6379
@@ -291,6 +307,7 @@ services:
   node-exporter:
     image: quay.io/prometheus/node-exporter
     container_name: node-exporter
+    restart: unless-stopped
     pid: "host"
     networks:
       - app_network
@@ -300,8 +317,9 @@ services:
       - "--path.rootfs=/host"
 
   kafka:
-    image: apache/kafka:latest
+    image: apache/kafka:3.7.0
     container_name: my-kafka
+    restart: unless-stopped
     ports:
       - "9092:9092"
     environment:
@@ -331,21 +349,77 @@ services:
       retries: 5
       start_period: 30s
 
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      alertmanager:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    networks:
+      - app_network
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - app_network
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    container_name: kafka-exporter
+    restart: unless-stopped
+    command:
+      - "--kafka.server=kafka:9092"
+    ports:
+      - "9308:9308"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - app_network
+
   alertmanager:
     image: prom/alertmanager:v0.27.0
     container_name: alertmanager
+    restart: unless-stopped
+    env_file: ./docker.env
     volumes:
-      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml
-    command:
-      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml.template:ro
+      - ./observability/alertmanager-entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    command: []
     ports:
       - "9093:9093"
     networks:
       - app_network
 
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:3.5.0
     container_name: loki
+    restart: unless-stopped
     ports:
       - "3100:3100"
     volumes:
@@ -355,12 +429,44 @@ services:
     networks:
       - app_network
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+    networks:
+      - app_network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+      - "8889:8889"
+    depends_on:
+      jaeger:
+        condition: service_started
+      loki:
+        condition: service_started
+    networks:
+      - app_network
+
   db-migration:
     build:
-      context: ./db-migration
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: db-migration/Dockerfile
     image: monolith-ecommerce-grpc-vertx/db-migration:latest
     container_name: db-migration
+    restart: "no"
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -374,14 +480,15 @@ services:
       - DB_PORT=5432
       - DB_USERNAME=DRAGON
       - DB_PASSWORD=DRAGON
-      - DB_NAME=PAYMENT_GATEWAY
+      - DB_NAME=ECOMMERCE
 
   apigateway:
     build:
-      context: ./apigateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apigateway/Dockerfile
     image: monolith-ecommerce-grpc-vertx/apigateway:latest
     container_name: apigateway
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -442,13 +549,17 @@ services:
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
       - HTTP_PORT=5000
+      # Production-safe default (1000/min per IP); override explicitly if needed.
+      - RATE_LIMIT_REQUESTS=${RATE_LIMIT_REQUESTS:-1000}
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
 
   auth:
     build:
-      context: ./auth
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: auth/Dockerfile
     image: monolith-ecommerce-grpc-vertx/auth:latest
     container_name: auth
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -469,14 +580,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_AUTH_PORT}
+      - GRPC_PORT=${GRPC_AUTH_PORT:-50051}
 
   role:
     build:
-      context: ./role
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: role/Dockerfile
     image: monolith-ecommerce-grpc-vertx/role:latest
     container_name: role
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -497,14 +609,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_ROLE_PORT}
+      - GRPC_PORT=${GRPC_ROLE_PORT:-50052}
 
   user:
     build:
-      context: ./user
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: user/Dockerfile
     image: monolith-ecommerce-grpc-vertx/user:latest
     container_name: user
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -525,14 +638,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_USER_PORT}
+      - GRPC_PORT=50053
 
   email:
     build:
-      context: ./email
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: email/Dockerfile
     image: monolith-ecommerce-grpc-vertx/email:latest
     container_name: email
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -551,13 +665,15 @@ services:
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
+      - SMTP_FROM=${SMTP_FROM:-no-reply@vertx-ecommerce.com}
 
   banner:
     build:
-      context: ./banner
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: banner/Dockerfile
     image: monolith-ecommerce-grpc-vertx/banner:latest
     container_name: banner
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -576,14 +692,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_BANNER_PORT}
+      - GRPC_PORT=${GRPC_BANNER_PORT:-50064}
 
   cart:
     build:
-      context: ./cart
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: cart/Dockerfile
     image: monolith-ecommerce-grpc-vertx/cart:latest
     container_name: cart
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -602,14 +719,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_CART_PORT}
+      - GRPC_PORT=${GRPC_CART_PORT:-50060}
 
   category:
     build:
-      context: ./category
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: category/Dockerfile
     image: monolith-ecommerce-grpc-vertx/category:latest
     container_name: category
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -628,14 +746,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_CATEGORY_PORT}
+      - GRPC_PORT=${GRPC_CATEGORY_PORT:-50054}
 
   merchant:
     build:
-      context: ./merchant
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: merchant/Dockerfile
     image: monolith-ecommerce-grpc-vertx/merchant:latest
     container_name: merchant
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -656,14 +775,17 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_MERCHANT_PORT}
+      # Internal service port is fixed; do not allow host env interpolation to
+      # cross-wire merchant with category/user during local deployment.
+      - GRPC_PORT=50055
 
   merchant_award:
     build:
-      context: ./merchant_award
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: merchant_award/Dockerfile
     image: monolith-ecommerce-grpc-vertx/merchant_award:latest
     container_name: merchant_award
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -682,14 +804,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_MERCHANT_AWARD_PORT}
+      - GRPC_PORT=${GRPC_MERCHANT_AWARD_PORT:-50065}
 
   merchant_business:
     build:
-      context: ./merchant_business
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: merchant_business/Dockerfile
     image: monolith-ecommerce-grpc-vertx/merchant_business:latest
     container_name: merchant_business
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -708,14 +831,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_MERCHANT_BUSINESS_PORT}
+      - GRPC_PORT=${GRPC_MERCHANT_BUSINESS_PORT:-50066}
 
   merchant_detail:
     build:
-      context: ./merchant_detail
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: merchant_detail/Dockerfile
     image: monolith-ecommerce-grpc-vertx/merchant_detail:latest
     container_name: merchant_detail
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -734,14 +858,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_MERCHANT_DETAIL_PORT}
+      - GRPC_PORT=${GRPC_MERCHANT_DETAIL_PORT:-50067}
 
   merchant_policy:
     build:
-      context: ./merchant_policy
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: merchant_policy/Dockerfile
     image: monolith-ecommerce-grpc-vertx/merchant_policy:latest
     container_name: merchant_policy
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -760,14 +885,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_MERCHANT_POLICY_PORT}
+      - GRPC_PORT=${GRPC_MERCHANT_POLICY_PORT:-50068}
 
   order:
     build:
-      context: ./order
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: order/Dockerfile
     image: monolith-ecommerce-grpc-vertx/order:latest
     container_name: order
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -786,14 +912,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_ORDER_PORT}
+      - GRPC_PORT=${GRPC_ORDER_PORT:-50057}
 
   order_item:
     build:
-      context: ./order_item
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: order_item/Dockerfile
     image: monolith-ecommerce-grpc-vertx/order_item:latest
     container_name: order_item
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -812,14 +939,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_ORDER_ITEM_PORT}
+      - GRPC_PORT=${GRPC_ORDER_ITEM_PORT:-50056}
 
   product:
     build:
-      context: ./product
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: product/Dockerfile
     image: monolith-ecommerce-grpc-vertx/product:latest
     container_name: product
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -838,14 +966,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_PRODUCT_PORT}
+      - GRPC_PORT=${GRPC_PRODUCT_PORT:-50058}
 
   review:
     build:
-      context: ./review
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: review/Dockerfile
     image: monolith-ecommerce-grpc-vertx/review:latest
     container_name: review
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -864,14 +993,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_REVIEW_PORT}
+      - GRPC_PORT=${GRPC_REVIEW_PORT:-50061}
 
   review_detail:
     build:
-      context: ./review_detail
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: review_detail/Dockerfile
     image: monolith-ecommerce-grpc-vertx/review_detail:latest
     container_name: review_detail
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -890,14 +1020,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_REVIEW_DETAIL_PORT}
+      - GRPC_PORT=${GRPC_REVIEW_DETAIL_PORT:-50069}
 
   shipping_address:
     build:
-      context: ./shipping_address
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: shipping_address/Dockerfile
     image: monolith-ecommerce-grpc-vertx/shipping_address:latest
     container_name: shipping_address
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -916,14 +1047,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_SHIPPING_PORT}
+      - GRPC_PORT=${GRPC_SHIPPING_PORT:-50063}
 
   slider:
     build:
-      context: ./slider
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: slider/Dockerfile
     image: monolith-ecommerce-grpc-vertx/slider:latest
     container_name: slider
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -942,14 +1074,15 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_SLIDER_PORT}
+      - GRPC_PORT=${GRPC_SLIDER_PORT:-50062}
 
   transaction:
     build:
-      context: ./transaction
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: transaction/Dockerfile
     image: monolith-ecommerce-grpc-vertx/transaction:latest
     container_name: transaction
+    restart: unless-stopped
     env_file: ./docker.env
     volumes:
       - ./docker.env:/app/docker.env
@@ -970,11 +1103,12 @@ services:
       - OTEL_ENDPOINT=otel-collector:4317
       - APP_ENV=docker
       - KAFKA_BROKERS=kafka:9092
-      - GRPC_PORT=${GRPC_TRANSACTION_PORT}
+      - GRPC_PORT=50059
 
 volumes:
   loki-data:
   grafana-storage:
+  prometheus_data:
   postgres_data:
   kafka_data:
   redis_node_1_data:

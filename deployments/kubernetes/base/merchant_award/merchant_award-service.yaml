@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: merchant_award
+  name: merchant-award
   namespace: ecommerce
 spec:
   selector:
-    app: merchant_award
+    app: merchant-award
   ports:
     - name: http-metrics
       port: 8095

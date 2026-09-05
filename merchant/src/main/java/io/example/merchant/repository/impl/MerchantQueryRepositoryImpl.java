@@ -24,7 +24,7 @@ public class MerchantQueryRepositoryImpl implements MerchantQueryRepository {
     return client
         .preparedQuery(
             """
-                SELECT merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
+                SELECT merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
                 FROM merchants
                 WHERE ($1::TEXT IS NULL OR name ILIKE '%' || $1 || '%')
                 ORDER BY created_at ASC LIMIT $2 OFFSET $3
@@ -39,7 +39,7 @@ public class MerchantQueryRepositoryImpl implements MerchantQueryRepository {
     return client
         .preparedQuery(
             """
-                SELECT merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
+                SELECT merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
                 FROM merchants
                 WHERE deleted_at IS NULL AND ($1::TEXT IS NULL OR name ILIKE '%' || $1 || '%')
                 ORDER BY created_at ASC LIMIT $2 OFFSET $3
@@ -54,7 +54,7 @@ public class MerchantQueryRepositoryImpl implements MerchantQueryRepository {
     return client
         .preparedQuery(
             """
-                SELECT merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
+                SELECT merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at, COUNT(*) OVER() AS total_count
                 FROM merchants
                 WHERE deleted_at IS NOT NULL AND ($1::TEXT IS NULL OR name ILIKE '%' || $1 || '%')
                 ORDER BY deleted_at DESC LIMIT $2 OFFSET $3
@@ -67,7 +67,7 @@ public class MerchantQueryRepositoryImpl implements MerchantQueryRepository {
   public Future<Merchant> getMerchantById(Long merchantId) {
     return client
         .preparedQuery("""
-            SELECT merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            SELECT merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             FROM merchants
             WHERE merchant_id = $1 AND deleted_at IS NULL
             """)
@@ -79,7 +79,7 @@ public class MerchantQueryRepositoryImpl implements MerchantQueryRepository {
   public Future<Merchant> findByTrashedId(Long merchantId) {
     return client
         .preparedQuery("""
-            SELECT merchant_id, merchant_no, name, api_key, user_id, status, created_at, updated_at, deleted_at
+            SELECT merchant_id, merchant_no, name, description, address, contact_email, contact_phone, user_id, status, created_at, updated_at, deleted_at
             FROM merchants
             WHERE merchant_id = $1 AND deleted_at IS NOT NULL
             """)

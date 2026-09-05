@@ -28,7 +28,7 @@ COPY transaction/pom.xml transaction/
 COPY user/pom.xml user/
 COPY db-migration/pom.xml db-migration/
 COPY common/src common/src
-COPY db-migration/src db-migration/
+COPY db-migration/src db-migration/src
 
 RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl db-migration -am -DskipTests -q -Dmaven.wagon.http.retryHandler.count=5
 
@@ -36,5 +36,4 @@ RUN --mount=type=cache,target=/root/.m2 mvn clean package -pl db-migration -am -
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/db-migration/target/db-migration-*-fat.jar app.jar
-COPY chaos.yaml .
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -13,6 +13,7 @@ import pb.user.UserCommon.ApiResponseUserAll;
 import pb.user.UserCommon.ApiResponseUserDelete;
 import pb.user.UserCommon.ApiResponseUserDeleteAt;
 import pb.user.UserCommon.FindByIdUserRequest;
+import io.example.common.grpc.GrpcServerBinder;
 
 @RequiredArgsConstructor
 public class UserCommandHandler implements pb.user.VertxUserCommandServiceGrpcServer.UserCommandServiceApi {
@@ -108,4 +109,16 @@ public class UserCommandHandler implements pb.user.VertxUserCommandServiceGrpcSe
                         .build())
                 .recover(GrpcExceptionMapper::toFailedFuture);
     }
+
+  @Override
+  public pb.user.VertxUserCommandServiceGrpcServer.UserCommandServiceApi bindAll(io.vertx.grpc.server.GrpcServer server) {
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.Create, this::create);
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.Update, this::update);
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.TrashedUser, this::trashedUser);
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.RestoreUser, this::restoreUser);
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.DeleteUserPermanent, this::deleteUserPermanent);
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.RestoreAllUser, this::restoreAllUser);
+    GrpcServerBinder.bind(server, pb.user.VertxUserCommandServiceGrpcServer.DeleteAllUserPermanent, this::deleteAllUserPermanent);
+    return this;
+  }
 }

@@ -1,13 +1,13 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: shipping_address-hpa
+  name: shipping-address-hpa
   namespace: ecommerce
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: shipping_address
+    name: shipping-address
   minReplicas: 2
   maxReplicas: 10
   metrics:
